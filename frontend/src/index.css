@@ -227,6 +227,39 @@ img {
   margin-top: 24px;
 }
 
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.insight-card {
+  background: linear-gradient(135deg, rgba(94, 196, 255, 0.08), rgba(124, 141, 255, 0.04));
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.insight-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+}
+
+.insight-card strong {
+  font-size: 1.4rem;
+}
+
+.insight-card small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .panel-card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -539,7 +572,8 @@ img {
 
 @media (max-width: 980px) {
   .summary-grid,
-  .movers-grid {
+  .movers-grid,
+  .insights-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -556,7 +590,8 @@ img {
   }
 
   .summary-grid,
-  .stats-grid {
+  .stats-grid,
+  .insights-grid {
     grid-template-columns: 1fr;
   }
 

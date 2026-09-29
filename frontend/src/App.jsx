@@ -7,10 +7,11 @@ import {
   LineElement,
   Tooltip,
   Legend,
+  Filler,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const DEFAULT_IDS = ['bitcoin', 'ethereum', 'solana', 'bnb', 'xrp', 'dogecoin', 'cardano', 'polygon'];
 
@@ -277,6 +278,24 @@ function App() {
               <strong>{formatCompact(portfolioHeat * 1000)}</strong>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="insights-grid">
+        <div className="insight-card">
+          <span className="insight-label">Market Sentiment</span>
+          <strong>Risk-On</strong>
+          <small>Momentum remains constructive across large-cap coins.</small>
+        </div>
+        <div className="insight-card">
+          <span className="insight-label">Breakout Watch</span>
+          <strong>BTC / ETH</strong>
+          <small>Trend strength continues to hold above key support zones.</small>
+        </div>
+        <div className="insight-card">
+          <span className="insight-label">Risk Meter</span>
+          <strong>Moderate</strong>
+          <small>Volatility is elevated but still within a healthy range.</small>
         </div>
       </section>
 
