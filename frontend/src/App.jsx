@@ -7,10 +7,11 @@ import {
   LineElement,
   Tooltip,
   Legend,
+  Filler,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const DEFAULT_IDS = ['bitcoin', 'ethereum', 'solana', 'bnb', 'xrp', 'dogecoin', 'cardano', 'polygon'];
 
@@ -142,6 +143,21 @@ function App() {
     };
   }, [coins]);
 
+  const topMovers = useMemo(
+    () =>
+      [...coins]
+        .sort((a, b) => Math.abs(b.price_change_percentage_24h) - Math.abs(a.price_change_percentage_24h))
+        .slice(0, 4),
+    [coins]
+  );
+
+  const portfolioHeat = useMemo(() => {
+    if (!coins.length) return 0;
+
+    const total = coins.slice(0, 4).reduce((sum, coin) => sum + (coin.current_price || 0), 0);
+    return total / 4;
+  }, [coins]);
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -169,6 +185,35 @@ function App() {
         </label>
       </header>
 
+      <section className="hero-banner">
+        <div className="hero-copy">
+          <p className="hero-tag">Welcome to BitNexa</p>
+          <h1>Trade smarter with real-time crypto signals.</h1>
+          <p className="hero-text">
+            Track market momentum, compare top assets, and keep your watchlist ready for the next move.
+          </p>
+          <div className="hero-actions">
+            <button type="button" className="primary-btn">Explore Markets</button>
+            <button type="button" className="ghost-btn">View Portfolio</button>
+          </div>
+        </div>
+
+        <div className="hero-panel">
+          <div className="mini-stat">
+            <span>Portfolio Value</span>
+            <strong>{formatCompact(portfolioHeat * 40)}</strong>
+          </div>
+          <div className="mini-stat accent">
+            <span>24h Trend</span>
+            <strong className="positive">+4.62%</strong>
+          </div>
+          <div className="mini-stat">
+            <span>Top Coin</span>
+            <strong>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</strong>
+          </div>
+        </div>
+      </section>
+
       <section className="summary-grid">
         <div className="metric-card">
           <span className="metric-label">Total Market Cap</span>
@@ -185,6 +230,72 @@ function App() {
         <div className="metric-card accent">
           <span className="metric-label">Market Signal</span>
           <strong>Positive</strong>
+        </div>
+      </section>
+
+      <section className="movers-grid">
+        <div className="panel-card">
+          <div className="panel-header">
+            <h3>Top Movers</h3>
+            <span>24h</span>
+          </div>
+
+          <div className="mover-list">
+            {topMovers.map((coin) => (
+              <div key={coin.id} className="mover-item">
+                <div className="coin-meta">
+                  <img src={coin.image} alt={coin.name} />
+                  <div>
+                    <strong>{coin.name}</strong>
+                    <span>{coin.symbol.toUpperCase()}</span>
+                  </div>
+                </div>
+                <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                  {formatPercent(coin.price_change_percentage_24h)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel-card">
+          <div className="panel-header">
+            <h3>Portfolio Pulse</h3>
+            <span>Live</span>
+          </div>
+
+          <div className="pulse-stack">
+            <div className="pulse-row">
+              <span>Active Positions</span>
+              <strong>12</strong>
+            </div>
+            <div className="pulse-row">
+              <span>Profit / Loss</span>
+              <strong className="positive">+$8,240</strong>
+            </div>
+            <div className="pulse-row">
+              <span>Exposure</span>
+              <strong>{formatCompact(portfolioHeat * 1000)}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="insights-grid">
+        <div className="insight-card">
+          <span className="insight-label">Market Sentiment</span>
+          <strong>Risk-On</strong>
+          <small>Momentum remains constructive across large-cap coins.</small>
+        </div>
+        <div className="insight-card">
+          <span className="insight-label">Breakout Watch</span>
+          <strong>BTC / ETH</strong>
+          <small>Trend strength continues to hold above key support zones.</small>
+        </div>
+        <div className="insight-card">
+          <span className="insight-label">Risk Meter</span>
+          <strong>Moderate</strong>
+          <small>Volatility is elevated but still within a healthy range.</small>
         </div>
       </section>
 
