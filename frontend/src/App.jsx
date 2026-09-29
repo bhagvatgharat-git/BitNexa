@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -44,6 +44,11 @@ function App() {
   const [orderSide, setOrderSide] = useState('buy');
   const [orderType, setOrderType] = useState('market');
   const [amount, setAmount] = useState('0.5');
+  const [theme, setTheme] = useState('dark');
+  const [showTradeModal, setShowTradeModal] = useState(false);
+  const [toasts, setToasts] = useState([
+    { id: 1, type: 'success', text: 'Market feed connected successfully.' },
+  ]);
   const [watchlist, setWatchlist] = useState(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -60,6 +65,22 @@ function App() {
   }, [watchlist]);
 
   useEffect(() => {
+    document.body.dataset.theme = theme;
+  }, [theme]);
+
+  useEffect(() => {
+    if (!toasts.length) return undefined;
+    const timer = setTimeout(() => {
+      setToasts((current) => current.slice(1));
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [toasts]);
+
+  const setToast = (value) => {
+    setToasts((current) => [...current, value]);
+  };
+
+  useEffect(() => {
     const loadMarket = async () => {
       try {
         setLoading(true);
@@ -71,12 +92,13 @@ function App() {
 
         const data = await response.json();
         setCoins(data);
+        setError('');
 
         if (data.length && !data.some((coin) => coin.id === selectedId)) {
           setSelectedId(data[0].id);
         }
       } catch (err) {
-        setError(err.message);
+        setError(err.message || 'Unable to fetch market data.');
       } finally {
         setLoading(false);
       }
@@ -127,7 +149,7 @@ function App() {
           ],
         });
       } catch (err) {
-        setError(err.message);
+        setError(err.message || 'Unable to load chart data.');
       }
     };
 
@@ -156,7 +178,7 @@ function App() {
           ],
         });
       } catch (err) {
-        setError(err.message);
+        setError(err.message || 'Unable to load candle data.');
       }
     };
 
@@ -210,443 +232,619 @@ function App() {
     );
   };
 
+  const navItems = ['Dashboard', 'Markets', 'Watchlist', 'Portfolio', 'Alerts'];
+
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-block">
-          <span className="brand">BITNEXA</span>
-          <span className="brand-subtitle">Crypto Market Tracker</span>
-        </div>
-
-        <nav className="nav-links">
-          <a href="#">Dashboard</a>
-          <a href="#">Markets</a>
-          <a href="#">Watchlist</a>
-          <a href="#">Portfolio</a>
-          <a href="#">Alerts</a>
-        </nav>
-
-        <label className="search-box" aria-label="Search crypto">
-          <span>🔎</span>
-          <input
-            type="text"
-            placeholder="Search cryptocurrency..."
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-      </header>
-
-      <section className="hero-banner">
-        <div className="hero-copy">
-          <p className="hero-tag">Welcome to BitNexa</p>
-          <h1>Trade smarter with real-time crypto signals.</h1>
-          <p className="hero-text">
-            Track momentum, compare top assets, and place entries and exits with a professional-grade market view.
-          </p>
-          <div className="hero-actions">
-            <button type="button" className="primary-btn">Explore Markets</button>
-            <button type="button" className="ghost-btn">View Portfolio</button>
-          </div>
-        </div>
-
-        <div className="hero-panel">
-          <div className="mini-stat">
-            <span>Portfolio Value</span>
-            <strong>{formatCompact((selectedCoin?.current_price || 0) * 4200)}</strong>
-          </div>
-          <div className="mini-stat accent">
-            <span>24h Trend</span>
-            <strong className={selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-              {selectedCoin ? formatPercent(selectedCoin.price_change_percentage_24h) : '+0.00%'}
-            </strong>
-          </div>
-          <div className="mini-stat">
-            <span>Top Coin</span>
-            <strong>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="summary-grid">
-        <div className="metric-card">
-          <span className="metric-label">Total Market Cap</span>
-          <strong>{overview ? formatCompact(overview.marketCap) : '--'}</strong>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">24h Volume</span>
-          <strong>{overview ? formatCompact(overview.volume) : '--'}</strong>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">BTC Dominance</span>
-          <strong>{overview ? formatPercent(overview.dominance) : '--'}</strong>
-        </div>
-        <div className="metric-card accent">
-          <span className="metric-label">Market Signal</span>
-          <strong>{overview ? overview.signal : 'Positive'}</strong>
-        </div>
-      </section>
-
-      <section className="movers-grid">
-        <div className="panel-card">
-          <div className="panel-header">
-            <h3>Top Movers</h3>
-            <span>24h</span>
-          </div>
-
-          <div className="mover-list">
-            {topMovers.map((coin) => (
-              <div key={coin.id} className="mover-item">
-                <div className="coin-meta">
-                  <img src={coin.image} alt={coin.name} />
-                  <div>
-                    <strong>{coin.name}</strong>
-                    <span>{coin.symbol.toUpperCase()}</span>
-                  </div>
-                </div>
-                <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                  {formatPercent(coin.price_change_percentage_24h)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="panel-card">
-          <div className="panel-header">
-            <h3>Market Pulse</h3>
-            <span>Live</span>
-          </div>
-
-          <div className="pulse-stack">
-            <div className="pulse-row">
-              <span>Sentiment</span>
-              <strong>{overview ? overview.sentiment : 'Risk-On'}</strong>
-            </div>
-            <div className="pulse-row">
-              <span>Fear & Greed</span>
-              <strong>{overview ? `${overview.fearGreed}/100` : '68/100'}</strong>
-            </div>
-            <div className="pulse-row">
-              <span>Signal</span>
-              <strong className={signal.className}>{signal.label}</strong>
+      <div className="dashboard-shell">
+        <aside className="sidebar">
+          <div className="brand-block">
+            <span className="brand-mark">B</span>
+            <div>
+              <span className="brand">BITNEXA</span>
+              <span className="brand-subtitle">Trading Desk</span>
             </div>
           </div>
-        </div>
-      </section>
 
-      <section className="insights-grid">
-        <div className="insight-card">
-          <span className="insight-label">Market Sentiment</span>
-          <strong>{overview ? overview.sentiment : 'Risk-On'}</strong>
-          <small>Momentum remains constructive across large-cap coins.</small>
-        </div>
-        <div className="insight-card">
-          <span className="insight-label">Breakout Watch</span>
-          <strong>BTC / ETH</strong>
-          <small>Trend strength continues to hold above key support zones.</small>
-        </div>
-        <div className="insight-card">
-          <span className="insight-label">Risk Meter</span>
-          <strong>Moderate</strong>
-          <small>Volatility is elevated but still within a healthy range.</small>
-        </div>
-      </section>
-
-      <section className="trending-panel panel-card">
-        <div className="panel-header">
-          <h3>Trending Now</h3>
-          <span>Top caps</span>
-        </div>
-
-        <div className="trending-list">
-          {trendingCoins.map((coin) => (
-            <div key={coin.id} className="trend-item">
-              <div className="coin-meta">
-                <img src={coin.image} alt={coin.name} />
-                <div>
-                  <strong>{coin.name}</strong>
-                  <span>{coin.symbol.toUpperCase()}</span>
-                </div>
-              </div>
-              <div className="trend-metric">
-                <strong>{formatCompact(coin.market_cap)}</strong>
-                <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                  {formatPercent(coin.price_change_percentage_24h)}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="market-grid">
-        <div className="coin-list-panel">
-          <div className="panel-header">
-            <h3>Market Overview</h3>
-            <span>{filteredCoins.length} coins</span>
-          </div>
-
-          {loading ? (
-            <p className="status-text">Loading market data...</p>
-          ) : error ? (
-            <p className="status-text error">{error}</p>
-          ) : (
-            filteredCoins.map((coin) => (
-              <button
-                key={coin.id}
-                type="button"
-                className={`coin-card ${selectedCoin?.id === coin.id ? 'selected' : ''}`}
-                onClick={() => setSelectedId(coin.id)}
-              >
-                <div className="coin-meta">
-                  <img src={coin.image} alt={coin.name} />
-                  <div>
-                    <strong>{coin.name}</strong>
-                    <span>{coin.symbol.toUpperCase()}</span>
-                  </div>
-                </div>
-
-                <div className="coin-price">
-                  <strong>{formatCurrency(coin.current_price)}</strong>
-                  <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                    {formatPercent(coin.price_change_percentage_24h)}
-                  </span>
-                </div>
+          <nav className="sidebar-nav">
+            {navItems.map((item, index) => (
+              <button key={item} type="button" className={`nav-item ${index === 0 ? 'active' : ''}`}>
+                <span>{index === 0 ? '◈' : index === 1 ? '◎' : index === 2 ? '★' : index === 3 ? '▣' : '⚑'}</span>
+                {item}
               </button>
-            ))
-          )}
-        </div>
+            ))}
+          </nav>
 
-        <div className="details-panel">
-          {selectedCoin ? (
-            <>
-              <div className="coin-header">
-                <div className="coin-meta large">
-                  <img src={selectedCoin.image} alt={selectedCoin.name} />
-                  <div>
-                    <h2>{selectedCoin.name}</h2>
-                    <span>{selectedCoin.symbol.toUpperCase()}</span>
+          <div className="sidebar-card">
+            <span className="eyebrow">Portfolio</span>
+            <strong>{formatCompact((selectedCoin?.current_price || 0) * 4200)}</strong>
+            <small>Updated 2 min ago</small>
+          </div>
+        </aside>
+
+        <main className="content-area">
+          <header className="topbar">
+            <div className="topbar-left">
+              <button type="button" className="icon-button" aria-label="Toggle menu">☰</button>
+              <div>
+                <p className="topbar-kicker">Welcome back</p>
+                <h2>Market Overview</h2>
+              </div>
+            </div>
+
+            <div className="topbar-actions">
+              <label className="search-box" aria-label="Search crypto">
+                <span>🔎</span>
+                <input
+                  type="text"
+                  placeholder="Search cryptocurrency..."
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+
+              <button type="button" className="theme-toggle" onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
+                {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+              </button>
+              <button type="button" className="primary-btn" onClick={() => setShowTradeModal(true)}>New Trade</button>
+            </div>
+          </header>
+
+          {error && (
+            <div className="error-banner">
+              <strong>Connection issue:</strong> {error}
+            </div>
+          )}
+
+          <section className="hero-banner">
+            <div className="hero-copy">
+              <p className="hero-tag">Welcome to BitNexa</p>
+              <h1>Trade smarter with real-time crypto signals.</h1>
+              <p className="hero-text">
+                Track momentum, compare top assets, and place entries and exits with a professional-grade market view.
+              </p>
+              <div className="hero-actions">
+                <button type="button" className="primary-btn" onClick={() => setShowTradeModal(true)}>Explore Markets</button>
+                <button type="button" className="ghost-btn" onClick={() => setToast({ id: Date.now(), type: 'success', text: 'Portfolio view opened.' })}>View Portfolio</button>
+              </div>
+            </div>
+
+            <div className="hero-panel">
+              <div className="mini-stat">
+                <span>Portfolio Value</span>
+                <strong>{formatCompact((selectedCoin?.current_price || 0) * 4200)}</strong>
+              </div>
+              <div className="mini-stat accent">
+                <span>24h Trend</span>
+                <strong className={selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                  {selectedCoin ? formatPercent(selectedCoin.price_change_percentage_24h) : '+0.00%'}
+                </strong>
+              </div>
+              <div className="mini-stat">
+                <span>Top Coin</span>
+                <strong>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section className="summary-grid">
+            <div className="metric-card">
+              <span className="metric-label">Total Market Cap</span>
+              <strong>{overview ? formatCompact(overview.marketCap) : '--'}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="metric-label">24h Volume</span>
+              <strong>{overview ? formatCompact(overview.volume) : '--'}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="metric-label">BTC Dominance</span>
+              <strong>{overview ? formatPercent(overview.dominance) : '--'}</strong>
+            </div>
+            <div className="metric-card accent">
+              <span className="metric-label">Market Signal</span>
+              <strong>{overview ? overview.signal : 'Positive'}</strong>
+            </div>
+          </section>
+
+          <section className="movers-grid">
+            <div className="panel-card">
+              <div className="panel-header">
+                <h3>Top Movers</h3>
+                <span>24h</span>
+              </div>
+
+              {loading ? (
+                <div className="skeleton-stack">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="skeleton-row" />
+                  ))}
+                </div>
+              ) : (
+                <div className="mover-list">
+                  {topMovers.map((coin) => (
+                    <div key={coin.id} className="mover-item">
+                      <div className="coin-meta">
+                        <img src={coin.image} alt={coin.name} />
+                        <div>
+                          <strong>{coin.name}</strong>
+                          <span>{coin.symbol.toUpperCase()}</span>
+                        </div>
+                      </div>
+                      <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                        {formatPercent(coin.price_change_percentage_24h)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="panel-card">
+              <div className="panel-header">
+                <h3>Market Pulse</h3>
+                <span>Live</span>
+              </div>
+
+              <div className="pulse-stack">
+                <div className="pulse-row">
+                  <span>Sentiment</span>
+                  <strong>{overview ? overview.sentiment : 'Risk-On'}</strong>
+                </div>
+                <div className="pulse-row">
+                  <span>Fear & Greed</span>
+                  <strong>{overview ? `${overview.fearGreed}/100` : '68/100'}</strong>
+                </div>
+                <div className="pulse-row">
+                  <span>Signal</span>
+                  <strong className={signal.className}>{signal.label}</strong>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="insights-grid">
+            <div className="insight-card">
+              <span className="insight-label">Market Sentiment</span>
+              <strong>{overview ? overview.sentiment : 'Risk-On'}</strong>
+              <small>Momentum remains constructive across large-cap coins.</small>
+            </div>
+            <div className="insight-card">
+              <span className="insight-label">Breakout Watch</span>
+              <strong>BTC / ETH</strong>
+              <small>Trend strength continues to hold above key support zones.</small>
+            </div>
+            <div className="insight-card">
+              <span className="insight-label">Risk Meter</span>
+              <strong>Moderate</strong>
+              <small>Volatility is elevated but still within a healthy range.</small>
+            </div>
+          </section>
+
+          <section className="trending-panel panel-card">
+            <div className="panel-header">
+              <h3>Trending Now</h3>
+              <span>Top caps</span>
+            </div>
+
+            <div className="trending-list">
+              {trendingCoins.map((coin) => (
+                <div key={coin.id} className="trend-item">
+                  <div className="coin-meta">
+                    <img src={coin.image} alt={coin.name} />
+                    <div>
+                      <strong>{coin.name}</strong>
+                      <span>{coin.symbol.toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <div className="trend-metric">
+                    <strong>{formatCompact(coin.market_cap)}</strong>
+                    <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                      {formatPercent(coin.price_change_percentage_24h)}
+                    </span>
                   </div>
                 </div>
+              ))}
+            </div>
+          </section>
 
-                <button
-                  type="button"
-                  className="watch-btn"
-                  onClick={() => toggleWatchlist(selectedCoin.id)}
-                >
-                  {watchlist.includes(selectedCoin.id) ? '★ Saved' : '☆ Add to Watchlist'}
+          <section className="market-grid">
+            <div className="coin-list-panel">
+              <div className="panel-header">
+                <h3>Market Overview</h3>
+                <span>{filteredCoins.length} coins</span>
+              </div>
+
+              {loading ? (
+                <div className="skeleton-stack">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="skeleton-card" />
+                  ))}
+                </div>
+              ) : error ? (
+                <div className="empty-state error-state">
+                  <div className="empty-icon">!</div>
+                  <h4>Unable to load market data</h4>
+                  <p>{error}</p>
+                </div>
+              ) : filteredCoins.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon">⌕</div>
+                  <h4>No crypto found</h4>
+                  <p>Try a different search term or reset the filter.</p>
+                </div>
+              ) : (
+                filteredCoins.map((coin) => (
+                  <button
+                    key={coin.id}
+                    type="button"
+                    className={`coin-card ${selectedCoin?.id === coin.id ? 'selected' : ''}`}
+                    onClick={() => setSelectedId(coin.id)}
+                  >
+                    <div className="coin-meta">
+                      <img src={coin.image} alt={coin.name} />
+                      <div>
+                        <strong>{coin.name}</strong>
+                        <span>{coin.symbol.toUpperCase()}</span>
+                      </div>
+                    </div>
+
+                    <div className="coin-price">
+                      <strong>{formatCurrency(coin.current_price)}</strong>
+                      <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                        {formatPercent(coin.price_change_percentage_24h)}
+                      </span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="details-panel">
+              {selectedCoin ? (
+                <>
+                  <div className="coin-header">
+                    <div className="coin-meta large">
+                      <img src={selectedCoin.image} alt={selectedCoin.name} />
+                      <div>
+                        <h2>{selectedCoin.name}</h2>
+                        <span>{selectedCoin.symbol.toUpperCase()}</span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="watch-btn"
+                      onClick={() => toggleWatchlist(selectedCoin.id)}
+                    >
+                      {watchlist.includes(selectedCoin.id) ? '★ Saved' : '☆ Add to Watchlist'}
+                    </button>
+                  </div>
+
+                  <div className="price-row">
+                    <h3>{formatCurrency(selectedCoin.current_price)}</h3>
+                    <span className={selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                      {formatPercent(selectedCoin.price_change_percentage_24h)}
+                    </span>
+                  </div>
+
+                  <div className="stats-grid">
+                    <div>
+                      <span>Market Rank</span>
+                      <strong>#{selectedCoin.market_cap_rank || '--'}</strong>
+                    </div>
+                    <div>
+                      <span>Market Cap</span>
+                      <strong>{formatCompact(selectedCoin.market_cap)}</strong>
+                    </div>
+                    <div>
+                      <span>24h Volume</span>
+                      <strong>{formatCompact(selectedCoin.total_volume)}</strong>
+                    </div>
+                    <div>
+                      <span>24h High</span>
+                      <strong>{formatCurrency(selectedCoin.high_24h)}</strong>
+                    </div>
+                    <div>
+                      <span>24h Low</span>
+                      <strong>{formatCurrency(selectedCoin.low_24h)}</strong>
+                    </div>
+                    <div>
+                      <span>Circulating Supply</span>
+                      <strong>{formatCompact(selectedCoin.circulating_supply)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="chart-box">
+                    <div className="chart-header">
+                      <h4>Price History</h4>
+                      <div className="range-selector">
+                        {[1, 7, 30, 90, 365].map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={range === value ? 'active' : ''}
+                            onClick={() => setRange(value)}
+                          >
+                            {value === 1 ? '1D' : value === 7 ? '7D' : value === 30 ? '30D' : value === 90 ? '90D' : '1Y'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <Line
+                      data={chartData}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: { display: false },
+                          tooltip: { mode: 'index', intersect: false },
+                        },
+                        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                        scales: {
+                          x: {
+                            ticks: { color: '#9db5d1' },
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                          },
+                          y: {
+                            ticks: { color: '#9db5d1', callback: (value) => '$' + value.toLocaleString() },
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                          },
+                        },
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-icon">◎</div>
+                  <h4>Select a coin</h4>
+                  <p>Choose a market to view detailed stats and price history.</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="trading-grid">
+            <div className="panel-card order-panel">
+              <div className="panel-header">
+                <h3>Trade Ticket</h3>
+                <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+              </div>
+
+              <div className="segmented-control">
+                <button type="button" className={orderSide === 'buy' ? 'active' : ''} onClick={() => setOrderSide('buy')}>
+                  Buy
+                </button>
+                <button type="button" className={orderSide === 'sell' ? 'active' : ''} onClick={() => setOrderSide('sell')}>
+                  Sell
                 </button>
               </div>
 
-              <div className="price-row">
-                <h3>{formatCurrency(selectedCoin.current_price)}</h3>
-                <span className={selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                  {formatPercent(selectedCoin.price_change_percentage_24h)}
-                </span>
-              </div>
+              <div className="ticket-form">
+                <label>
+                  Order type
+                  <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
+                    <option value="market">Market</option>
+                    <option value="limit">Limit</option>
+                    <option value="stop">Stop</option>
+                  </select>
+                </label>
 
-              <div className="stats-grid">
-                <div>
-                  <span>Market Rank</span>
-                  <strong>#{selectedCoin.market_cap_rank || '--'}</strong>
-                </div>
-                <div>
-                  <span>Market Cap</span>
-                  <strong>{formatCompact(selectedCoin.market_cap)}</strong>
-                </div>
-                <div>
-                  <span>24h Volume</span>
-                  <strong>{formatCompact(selectedCoin.total_volume)}</strong>
-                </div>
-                <div>
-                  <span>24h High</span>
-                  <strong>{formatCurrency(selectedCoin.high_24h)}</strong>
-                </div>
-                <div>
-                  <span>24h Low</span>
-                  <strong>{formatCurrency(selectedCoin.low_24h)}</strong>
-                </div>
-                <div>
-                  <span>Circulating Supply</span>
-                  <strong>{formatCompact(selectedCoin.circulating_supply)}</strong>
-                </div>
-              </div>
-
-              <div className="chart-box">
-                <div className="chart-header">
-                  <h4>Price History</h4>
-                  <div className="range-selector">
-                    {[1, 7, 30, 90, 365].map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={range === value ? 'active' : ''}
-                        onClick={() => setRange(value)}
-                      >
-                        {value === 1 ? '1D' : value === 7 ? '7D' : value === 30 ? '30D' : value === 90 ? '90D' : '1Y'}
-                      </button>
-                    ))}
+                <label>
+                  Amount
+                  <div className="amount-row">
+                    <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                    <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
                   </div>
-                </div>
+                </label>
+              </div>
 
-                <Line
-                  data={chartData}
+              <div className="order-summary">
+                <div>
+                  <span>Market price</span>
+                  <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
+                </div>
+                <div>
+                  <span>Est. total</span>
+                  <strong>{selectedCoin ? formatCurrency(orderTotal) : '--'}</strong>
+                </div>
+              </div>
+
+              <button type="button" className={`place-order ${orderSide}`} onClick={() => setShowTradeModal(true)}>
+                {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
+              </button>
+            </div>
+
+            <div className="panel-card candle-panel">
+              <div className="panel-header">
+                <h3>Candlestick Pattern</h3>
+                <span>{range === 1 ? '1D' : `${range}D`}</span>
+              </div>
+
+              <div className="candle-chart-wrap">
+                <Bar
+                  data={candleChartData}
                   options={{
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                      legend: { display: false },
-                      tooltip: { mode: 'index', intersect: false },
-                    },
-                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    plugins: { legend: { display: false }, tooltip: { enabled: true } },
                     scales: {
-                      x: {
-                        ticks: { color: '#9db5d1' },
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                      },
-                      y: {
-                        ticks: { color: '#9db5d1', callback: (value) => '$' + value.toLocaleString() },
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                      },
+                      x: { display: false },
+                      y: { display: false },
                     },
+                    borderSkipped: false,
                   }}
                 />
               </div>
-            </>
-          ) : (
-            <p className="status-text">Select a coin to view details.</p>
-          )}
-        </div>
-      </section>
 
-      <section className="trading-grid">
-        <div className="panel-card order-panel">
-          <div className="panel-header">
-            <h3>Trade Ticket</h3>
-            <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
-          </div>
-
-          <div className="segmented-control">
-            <button type="button" className={orderSide === 'buy' ? 'active' : ''} onClick={() => setOrderSide('buy')}>
-              Buy
-            </button>
-            <button type="button" className={orderSide === 'sell' ? 'active' : ''} onClick={() => setOrderSide('sell')}>
-              Sell
-            </button>
-          </div>
-
-          <div className="ticket-form">
-            <label>
-              Order type
-              <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
-                <option value="market">Market</option>
-                <option value="limit">Limit</option>
-                <option value="stop">Stop</option>
-              </select>
-            </label>
-
-            <label>
-              Amount
-              <div className="amount-row">
-                <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-                <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+              <div className="pattern-list">
+                <div className="pattern-item positive">
+                  <span>Trend</span>
+                  <strong>{selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'Bullish' : 'Cooling'}</strong>
+                </div>
+                <div className="pattern-item neutral">
+                  <span>Setup</span>
+                  <strong>{selectedCoin ? (selectedCoin.price_change_percentage_24h >= 0 ? 'Breakout retest' : 'Support test') : 'Watching'}</strong>
+                </div>
+                <div className="pattern-item neutral">
+                  <span>Volume</span>
+                  <strong>{selectedCoin ? formatCompact(selectedCoin.total_volume) : '--'}</strong>
+                </div>
               </div>
-            </label>
-          </div>
-
-          <div className="order-summary">
-            <div>
-              <span>Market price</span>
-              <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
             </div>
-            <div>
-              <span>Est. total</span>
-              <strong>{selectedCoin ? formatCurrency(orderTotal) : '--'}</strong>
+          </section>
+
+          <section className="panel-card table-panel">
+            <div className="panel-header">
+              <h3>Market Table</h3>
+              <span>Top assets</span>
             </div>
-          </div>
 
-          <button type="button" className={`place-order ${orderSide}`}>
-            {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
-          </button>
-        </div>
-
-        <div className="panel-card candle-panel">
-          <div className="panel-header">
-            <h3>Candlestick Pattern</h3>
-            <span>{range === 1 ? '1D' : `${range}D`}</span>
-          </div>
-
-          <div className="candle-chart-wrap">
-            <Bar
-              data={candleChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { enabled: true } },
-                scales: {
-                  x: { display: false },
-                  y: { display: false },
-                },
-                borderSkipped: false,
-              }}
-            />
-          </div>
-
-          <div className="pattern-list">
-            <div className="pattern-item positive">
-              <span>Trend</span>
-              <strong>{selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'Bullish' : 'Cooling'}</strong>
-            </div>
-            <div className="pattern-item neutral">
-              <span>Setup</span>
-              <strong>{selectedCoin ? (selectedCoin.price_change_percentage_24h >= 0 ? 'Breakout retest' : 'Support test') : 'Watching'}</strong>
-            </div>
-            <div className="pattern-item neutral">
-              <span>Volume</span>
-              <strong>{selectedCoin ? formatCompact(selectedCoin.total_volume) : '--'}</strong>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="watchlist-panel">
-        <div className="panel-header">
-          <h3>My Watchlist</h3>
-          <div className="watchlist-actions">
-            <span>{watchlistCoins.length} saved</span>
-            {watchlistCoins.length > 0 && (
-              <button type="button" className="clear-btn" onClick={() => setWatchlist([])}>
-                Clear all
-              </button>
+            {filteredCoins.length ? (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Price</th>
+                    <th>Market Cap</th>
+                    <th>24h</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCoins.slice(0, 5).map((coin) => (
+                    <tr key={coin.id}>
+                      <td>
+                        <div className="table-coin">
+                          <img src={coin.image} alt={coin.name} />
+                          <div>
+                            <strong>{coin.name}</strong>
+                            <span>{coin.symbol.toUpperCase()}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td>{formatCurrency(coin.current_price)}</td>
+                      <td>{formatCompact(coin.market_cap)}</td>
+                      <td className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                        {formatPercent(coin.price_change_percentage_24h)}
+                      </td>
+                      <td><button className="link-btn" type="button" onClick={() => setSelectedId(coin.id)}>View</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">∎</div>
+                <h4>No rows to display</h4>
+                <p>Adjust your market filter to show available assets.</p>
+              </div>
             )}
+          </section>
+
+          <section className="watchlist-panel">
+            <div className="panel-header">
+              <h3>My Watchlist</h3>
+              <div className="watchlist-actions">
+                <span>{watchlistCoins.length} saved</span>
+                {watchlistCoins.length > 0 && (
+                  <button type="button" className="clear-btn" onClick={() => setWatchlist([])}>
+                    Clear all
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {watchlistCoins.length ? (
+              <div className="watchlist-list">
+                {watchlistCoins.map((coin) => (
+                  <div key={coin.id} className="watchlist-item">
+                    <div className="coin-meta">
+                      <img src={coin.image} alt={coin.name} />
+                      <div>
+                        <strong>{coin.name}</strong>
+                        <span>{coin.symbol.toUpperCase()}</span>
+                      </div>
+                    </div>
+                    <div className="watch-price-group">
+                      <strong>{formatCurrency(coin.current_price)}</strong>
+                      <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                        {formatPercent(coin.price_change_percentage_24h)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">☆</div>
+                <h4>Your watchlist is empty</h4>
+                <p>Add your favorite coins to track them here.</p>
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
+
+      <div className="toast-stack">
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast ${toast.type}`}>
+            {toast.text}
+          </div>
+        ))}
+      </div>
+
+      {showTradeModal && (
+        <div className="modal-backdrop" onClick={() => setShowTradeModal(false)}>
+          <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <span className="eyebrow">Order confirmation</span>
+                <h3>{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase()}</h3>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setShowTradeModal(false)}>×</button>
+            </div>
+
+            <div className="modal-body">
+              <div className="summary-line">
+                <span>Coin</span>
+                <strong>{selectedCoin?.name}</strong>
+              </div>
+              <div className="summary-line">
+                <span>Order type</span>
+                <strong>{orderType}</strong>
+              </div>
+              <div className="summary-line">
+                <span>Amount</span>
+                <strong>{amount} {selectedCoin?.symbol?.toUpperCase()}</strong>
+              </div>
+              <div className="summary-line highlight">
+                <span>Total</span>
+                <strong>{formatCurrency(orderTotal)}</strong>
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="ghost-btn" onClick={() => setShowTradeModal(false)}>Cancel</button>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={() => {
+                  setShowTradeModal(false);
+                  setToast({
+                    id: Date.now(),
+                    type: orderSide === 'buy' ? 'success' : 'info',
+                    text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order placed for ${selectedCoin?.symbol?.toUpperCase()}`,
+                  });
+                }}
+              >
+                Confirm order
+              </button>
+            </div>
           </div>
         </div>
-
-        {watchlistCoins.length ? (
-          <div className="watchlist-list">
-            {watchlistCoins.map((coin) => (
-              <div key={coin.id} className="watchlist-item">
-                <div className="coin-meta">
-                  <img src={coin.image} alt={coin.name} />
-                  <div>
-                    <strong>{coin.name}</strong>
-                    <span>{coin.symbol.toUpperCase()}</span>
-                  </div>
-                </div>
-                <div className="watch-price-group">
-                  <strong>{formatCurrency(coin.current_price)}</strong>
-                  <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                    {formatPercent(coin.price_change_percentage_24h)}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="status-text">Your watchlist is empty. Add your favorite coins to track them here.</p>
-        )}
-      </section>
+      )}
     </div>
   );
 }
