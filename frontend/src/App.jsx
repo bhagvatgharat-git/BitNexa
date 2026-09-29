@@ -151,6 +151,11 @@ function App() {
     [coins]
   );
 
+  const trendingCoins = useMemo(
+    () => [...coins].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)).slice(0, 3),
+    [coins]
+  );
+
   const portfolioHeat = useMemo(() => {
     if (!coins.length) return 0;
 
@@ -299,6 +304,33 @@ function App() {
         </div>
       </section>
 
+      <section className="trending-panel panel-card">
+        <div className="panel-header">
+          <h3>Trending Now</h3>
+          <span>Top caps</span>
+        </div>
+
+        <div className="trending-list">
+          {trendingCoins.map((coin) => (
+            <div key={coin.id} className="trend-item">
+              <div className="coin-meta">
+                <img src={coin.image} alt={coin.name} />
+                <div>
+                  <strong>{coin.name}</strong>
+                  <span>{coin.symbol.toUpperCase()}</span>
+                </div>
+              </div>
+              <div className="trend-metric">
+                <strong>{formatCompact(coin.market_cap)}</strong>
+                <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                  {formatPercent(coin.price_change_percentage_24h)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="market-grid">
         <div className="coin-list-panel">
           <div className="panel-header">
@@ -442,7 +474,14 @@ function App() {
       <section className="watchlist-panel">
         <div className="panel-header">
           <h3>My Watchlist</h3>
-          <span>{watchlistCoins.length} saved</span>
+          <div className="watchlist-actions">
+            <span>{watchlistCoins.length} saved</span>
+            {watchlistCoins.length > 0 && (
+              <button type="button" className="clear-btn" onClick={() => setWatchlist([])}>
+                Clear all
+              </button>
+            )}
+          </div>
         </div>
 
         {watchlistCoins.length ? (
