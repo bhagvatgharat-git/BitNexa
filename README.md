@@ -1,18 +1,51 @@
 # BitNexa
 
-BitNexa is a real-time cryptocurrency market tracking and analytics platform.
+BitNexa is a cryptocurrency market tracking and analytics platform built with a React frontend and an Express backend.
 
-## Project Status
+## Project Structure
 
-🚧 Under Development
+- frontend: React application
+- backend: Express application
+- .gitignore: ignores environment and build files
+- README.md: project documentation
 
-## Technologies
+## Getting Started
 
-- JavaScript
-- React.js
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The app will be available at http://localhost:5173
+
+### Backend
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+The API will be available at http://localhost:5000
+
+### Health Check
+
+```bash
+curl http://localhost:5000/api/health
+```
+
+## Tech Stack
+
+- React
+- Vite
+- Express
 - Node.js
-- Express.js
-- CoinGecko API
-- Chart.js
-- MongoDB
-- Git & GitHub
+- CORS
+- Dotenv
+
+## License
+
+This project is currently under development.
