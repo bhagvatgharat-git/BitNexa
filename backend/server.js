@@ -156,6 +156,73 @@ const getMockChartData = (id, days) => {
   return { labels, prices };
 };
 
+const buildMarketOverview = (coins = []) => {
+  if (!coins.length) {
+    return {
+      marketCap: 0,
+      volume: 0,
+      dominance: 0,
+      sentiment: 'Neutral',
+      signal: 'Watching setup',
+      fearGreed: 58,
+    };
+  }
+
+  const marketCap = coins.reduce((sum, coin) => sum + (coin.market_cap || 0), 0);
+  const volume = coins.reduce((sum, coin) => sum + (coin.total_volume || 0), 0);
+  const dominance = coins.find((coin) => coin.id === 'bitcoin')?.market_cap_percentage || 0;
+  const avgMomentum = coins.reduce((sum, coin) => sum + (coin.price_change_percentage_24h || 0), 0) / coins.length;
+
+  return {
+    marketCap,
+    volume,
+    dominance,
+    sentiment: avgMomentum >= 0 ? 'Risk-On' : 'Risk-Off',
+    signal: avgMomentum >= 0 ? 'Bullish continuation' : 'Guarded correction',
+    fearGreed: Math.min(100, Math.max(0, Math.round(55 + avgMomentum * 4))),
+  };
+};
+
+const buildFallbackOHLC = (id, days = 7) => {
+  const baseCoin = MOCK_COINS.find((coin) => coin.id === id) || MOCK_COINS[0];
+  const basePrice = baseCoin.current_price;
+  const total = Math.max(days, 7);
+  const candles = [];
+
+  for (let i = total; i >= 1; i -= 1) {
+    const signal = Math.sin((total - i + 1) / 2.2) * (basePrice * 0.03);
+    const open = basePrice + signal;
+    const close = open * (1 + Math.cos((total - i + 1) / 1.9) * 0.025);
+    const high = Math.max(open, close) * (1 + 0.014 + (i * 0.0008));
+    const low = Math.min(open, close) * (1 - 0.012 - (i * 0.0007));
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+
+    candles.push({
+      time: date.toISOString(),
+      label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      open: Number(open.toFixed(2)),
+      high: Number(high.toFixed(2)),
+      low: Number(low.toFixed(2)),
+      close: Number(close.toFixed(2)),
+      range: Number((Math.abs(high - low)).toFixed(2)),
+      direction: close >= open ? 'up' : 'down',
+    });
+  }
+
+  return candles;
+};
+
+const buildFallbackTrending = () =>
+  MOCK_COINS.slice(0, 5).map((coin) => ({
+    id: coin.id,
+    symbol: coin.symbol,
+    name: coin.name,
+    price: coin.current_price,
+    percent_change_24h: coin.price_change_percentage_24h,
+    market_cap: coin.market_cap,
+  }));
+
 app.use(cors());
 app.use(express.json());
 
@@ -189,6 +256,48 @@ app.get('/api/market', async (req, res) => {
     res.json(getMockMarketData((req.query.ids || DEFAULT_IDS.join(','))
       .split(',')
       .filter(Boolean)));
+  }
+});
+
+app.get('/api/overview', async (req, res) => {
+  try {
+    const ids = (req.query.ids || DEFAULT_IDS.join(',')).split(',').filter(Boolean);
+    const { data } = await axios.get('https://api.coingecko.com/api/v3/coins/markets', {
+      params: {
+        vs_currency: 'usd',
+        ids: ids.join(','),
+        order: 'market_cap_desc',
+        per_page: 100,
+        page: 1,
+        sparkline: false,
+        price_change_percentage: '24h',
+      },
+    });
+
+    res.json(buildMarketOverview(data));
+  } catch (error) {
+    console.error('Overview fetch failed:', error.message);
+    const ids = (req.query.ids || DEFAULT_IDS.join(',')).split(',').filter(Boolean);
+    res.json(buildMarketOverview(getMockMarketData(ids)));
+  }
+});
+
+app.get('/api/trending', async (req, res) => {
+  try {
+    const { data } = await axios.get('https://api.coingecko.com/api/v3/search/trending');
+    const trending = (data.coins || []).slice(0, 5).map((entry) => ({
+      id: entry.item.id,
+      symbol: entry.item.symbol,
+      name: entry.item.name,
+      price: entry.item.price_btc || 0,
+      percent_change_24h: entry.item.data?.price_change_percentage_24h?.usd || 0,
+      market_cap: entry.item.market_cap_rank || 0,
+    }));
+
+    res.json({ coins: trending });
+  } catch (error) {
+    console.error('Trending fetch failed:', error.message);
+    res.json({ coins: buildFallbackTrending() });
   }
 });
 
@@ -236,6 +345,38 @@ app.get('/api/chart/:id', async (req, res) => {
   } catch (error) {
     console.error('Chart fetch failed:', error.message);
     res.json(getMockChartData(req.params.id, Number(req.query.days) || 7));
+  }
+});
+
+app.get('/api/ohlc/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const days = Number(req.query.days) || 7;
+    const { data } = await axios.get(`https://api.coingecko.com/api/v3/coins/${id}/ohlc`, {
+      params: {
+        vs_currency: 'usd',
+        days,
+      },
+    });
+
+    const candles = (Array.isArray(data) ? data : []).map(([timestamp, open, high, low, close]) => {
+      const date = new Date(timestamp);
+      return {
+        time: date.toISOString(),
+        label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        open: Number(open),
+        high: Number(high),
+        low: Number(low),
+        close: Number(close),
+        range: Number((Math.abs(high - low)).toFixed(2)),
+        direction: close >= open ? 'up' : 'down',
+      };
+    });
+
+    res.json({ candles });
+  } catch (error) {
+    console.error('OHLC fetch failed:', error.message);
+    res.json({ candles: buildFallbackOHLC(req.params.id, Number(req.query.days) || 7) });
   }
 });
 

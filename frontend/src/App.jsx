@@ -5,13 +5,14 @@ import {
   LinearScale,
   PointElement,
   LineElement,
+  BarElement,
   Tooltip,
   Legend,
   Filler,
 } from 'chart.js';
-import { Line } from 'react-chartjs-2';
+import { Line, Bar } from 'react-chartjs-2';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
 
 const DEFAULT_IDS = ['bitcoin', 'ethereum', 'solana', 'bnb', 'xrp', 'dogecoin', 'cardano', 'polygon'];
 
@@ -36,9 +37,15 @@ function App() {
   const [query, setQuery] = useState('');
   const [range, setRange] = useState(7);
   const [chartData, setChartData] = useState({ labels: [], datasets: [] });
+  const [candleChartData, setCandleChartData] = useState({ labels: [], datasets: [] });
+  const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [orderSide, setOrderSide] = useState('buy');
+  const [orderType, setOrderType] = useState('market');
+  const [amount, setAmount] = useState('0.5');
   const [watchlist, setWatchlist] = useState(() => {
+    if (typeof window === 'undefined') return [];
     try {
       return JSON.parse(localStorage.getItem('bitnexa-watchlist') || '[]');
     } catch {
@@ -47,7 +54,9 @@ function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('bitnexa-watchlist', JSON.stringify(watchlist));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('bitnexa-watchlist', JSON.stringify(watchlist));
+    }
   }, [watchlist]);
 
   useEffect(() => {
@@ -73,8 +82,24 @@ function App() {
       }
     };
 
+    const loadOverview = async () => {
+      try {
+        const response = await fetch(`http://localhost:5000/api/overview?ids=${DEFAULT_IDS.join(',')}`);
+        if (response.ok) {
+          const data = await response.json();
+          setOverview(data);
+        }
+      } catch (err) {
+        console.error('Overview fetch error:', err);
+      }
+    };
+
     loadMarket();
-    const interval = setInterval(loadMarket, 60000);
+    loadOverview();
+    const interval = setInterval(() => {
+      loadMarket();
+      loadOverview();
+    }, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -106,7 +131,37 @@ function App() {
       }
     };
 
+    const loadCandles = async () => {
+      if (!selectedId) return;
+
+      try {
+        const response = await fetch(`http://localhost:5000/api/ohlc/${selectedId}?days=${range}`);
+        if (!response.ok) throw new Error('Unable to fetch candle data.');
+
+        const data = await response.json();
+        const candles = data.candles || [];
+
+        setCandleChartData({
+          labels: candles.map((item) => item.label),
+          datasets: [
+            {
+              label: 'Candles',
+              data: candles.map((item) => item.range),
+              backgroundColor: candles.map((item) => (
+                item.direction === 'up' ? 'rgba(54, 211, 153, 0.8)' : 'rgba(255, 100, 124, 0.78)'
+              )),
+              borderRadius: 4,
+              borderSkipped: false,
+            },
+          ],
+        });
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+
     loadChart();
+    loadCandles();
   }, [selectedId, range]);
 
   const filteredCoins = useMemo(
@@ -120,29 +175,6 @@ function App() {
 
   const selectedCoin = coins.find((coin) => coin.id === selectedId) || coins[0];
   const watchlistCoins = coins.filter((coin) => watchlist.includes(coin.id));
-
-  const toggleWatchlist = (coinId) => {
-    setWatchlist((current) =>
-      current.includes(coinId)
-        ? current.filter((id) => id !== coinId)
-        : [...current, coinId]
-    );
-  };
-
-  const marketSummary = useMemo(() => {
-    if (!coins.length) return null;
-
-    const totalMarketCap = coins.reduce((sum, coin) => sum + (coin.market_cap || 0), 0);
-    const totalVolume = coins.reduce((sum, coin) => sum + (coin.total_volume || 0), 0);
-    const btcDominance = coins.find((coin) => coin.id === 'bitcoin')?.market_cap_percentage || 0;
-
-    return {
-      marketCap: totalMarketCap,
-      volume: totalVolume,
-      btcDominance,
-    };
-  }, [coins]);
-
   const topMovers = useMemo(
     () =>
       [...coins]
@@ -156,12 +188,27 @@ function App() {
     [coins]
   );
 
-  const portfolioHeat = useMemo(() => {
-    if (!coins.length) return 0;
+  const signal = useMemo(() => {
+    if (!selectedCoin) {
+      return { label: 'Monitoring', className: 'neutral' };
+    }
 
-    const total = coins.slice(0, 4).reduce((sum, coin) => sum + (coin.current_price || 0), 0);
-    return total / 4;
-  }, [coins]);
+    if (selectedCoin.price_change_percentage_24h >= 0) {
+      return { label: 'Bullish Momentum', className: 'positive' };
+    }
+
+    return { label: 'Pullback Watch', className: 'negative' };
+  }, [selectedCoin]);
+
+  const orderTotal = selectedCoin ? (Number(amount) || 0) * selectedCoin.current_price : 0;
+
+  const toggleWatchlist = (coinId) => {
+    setWatchlist((current) =>
+      current.includes(coinId)
+        ? current.filter((id) => id !== coinId)
+        : [...current, coinId]
+    );
+  };
 
   return (
     <div className="app-shell">
@@ -195,7 +242,7 @@ function App() {
           <p className="hero-tag">Welcome to BitNexa</p>
           <h1>Trade smarter with real-time crypto signals.</h1>
           <p className="hero-text">
-            Track market momentum, compare top assets, and keep your watchlist ready for the next move.
+            Track momentum, compare top assets, and place entries and exits with a professional-grade market view.
           </p>
           <div className="hero-actions">
             <button type="button" className="primary-btn">Explore Markets</button>
@@ -206,11 +253,13 @@ function App() {
         <div className="hero-panel">
           <div className="mini-stat">
             <span>Portfolio Value</span>
-            <strong>{formatCompact(portfolioHeat * 40)}</strong>
+            <strong>{formatCompact((selectedCoin?.current_price || 0) * 4200)}</strong>
           </div>
           <div className="mini-stat accent">
             <span>24h Trend</span>
-            <strong className="positive">+4.62%</strong>
+            <strong className={selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+              {selectedCoin ? formatPercent(selectedCoin.price_change_percentage_24h) : '+0.00%'}
+            </strong>
           </div>
           <div className="mini-stat">
             <span>Top Coin</span>
@@ -222,19 +271,19 @@ function App() {
       <section className="summary-grid">
         <div className="metric-card">
           <span className="metric-label">Total Market Cap</span>
-          <strong>{marketSummary ? formatCompact(marketSummary.marketCap) : '--'}</strong>
+          <strong>{overview ? formatCompact(overview.marketCap) : '--'}</strong>
         </div>
         <div className="metric-card">
           <span className="metric-label">24h Volume</span>
-          <strong>{marketSummary ? formatCompact(marketSummary.volume) : '--'}</strong>
+          <strong>{overview ? formatCompact(overview.volume) : '--'}</strong>
         </div>
         <div className="metric-card">
           <span className="metric-label">BTC Dominance</span>
-          <strong>{marketSummary ? formatPercent(marketSummary.btcDominance) : '--'}</strong>
+          <strong>{overview ? formatPercent(overview.dominance) : '--'}</strong>
         </div>
         <div className="metric-card accent">
           <span className="metric-label">Market Signal</span>
-          <strong>Positive</strong>
+          <strong>{overview ? overview.signal : 'Positive'}</strong>
         </div>
       </section>
 
@@ -265,22 +314,22 @@ function App() {
 
         <div className="panel-card">
           <div className="panel-header">
-            <h3>Portfolio Pulse</h3>
+            <h3>Market Pulse</h3>
             <span>Live</span>
           </div>
 
           <div className="pulse-stack">
             <div className="pulse-row">
-              <span>Active Positions</span>
-              <strong>12</strong>
+              <span>Sentiment</span>
+              <strong>{overview ? overview.sentiment : 'Risk-On'}</strong>
             </div>
             <div className="pulse-row">
-              <span>Profit / Loss</span>
-              <strong className="positive">+$8,240</strong>
+              <span>Fear & Greed</span>
+              <strong>{overview ? `${overview.fearGreed}/100` : '68/100'}</strong>
             </div>
             <div className="pulse-row">
-              <span>Exposure</span>
-              <strong>{formatCompact(portfolioHeat * 1000)}</strong>
+              <span>Signal</span>
+              <strong className={signal.className}>{signal.label}</strong>
             </div>
           </div>
         </div>
@@ -289,7 +338,7 @@ function App() {
       <section className="insights-grid">
         <div className="insight-card">
           <span className="insight-label">Market Sentiment</span>
-          <strong>Risk-On</strong>
+          <strong>{overview ? overview.sentiment : 'Risk-On'}</strong>
           <small>Momentum remains constructive across large-cap coins.</small>
         </div>
         <div className="insight-card">
@@ -468,6 +517,96 @@ function App() {
           ) : (
             <p className="status-text">Select a coin to view details.</p>
           )}
+        </div>
+      </section>
+
+      <section className="trading-grid">
+        <div className="panel-card order-panel">
+          <div className="panel-header">
+            <h3>Trade Ticket</h3>
+            <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+          </div>
+
+          <div className="segmented-control">
+            <button type="button" className={orderSide === 'buy' ? 'active' : ''} onClick={() => setOrderSide('buy')}>
+              Buy
+            </button>
+            <button type="button" className={orderSide === 'sell' ? 'active' : ''} onClick={() => setOrderSide('sell')}>
+              Sell
+            </button>
+          </div>
+
+          <div className="ticket-form">
+            <label>
+              Order type
+              <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
+                <option value="market">Market</option>
+                <option value="limit">Limit</option>
+                <option value="stop">Stop</option>
+              </select>
+            </label>
+
+            <label>
+              Amount
+              <div className="amount-row">
+                <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+              </div>
+            </label>
+          </div>
+
+          <div className="order-summary">
+            <div>
+              <span>Market price</span>
+              <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
+            </div>
+            <div>
+              <span>Est. total</span>
+              <strong>{selectedCoin ? formatCurrency(orderTotal) : '--'}</strong>
+            </div>
+          </div>
+
+          <button type="button" className={`place-order ${orderSide}`}>
+            {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
+          </button>
+        </div>
+
+        <div className="panel-card candle-panel">
+          <div className="panel-header">
+            <h3>Candlestick Pattern</h3>
+            <span>{range === 1 ? '1D' : `${range}D`}</span>
+          </div>
+
+          <div className="candle-chart-wrap">
+            <Bar
+              data={candleChartData}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                scales: {
+                  x: { display: false },
+                  y: { display: false },
+                },
+                borderSkipped: false,
+              }}
+            />
+          </div>
+
+          <div className="pattern-list">
+            <div className="pattern-item positive">
+              <span>Trend</span>
+              <strong>{selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'Bullish' : 'Cooling'}</strong>
+            </div>
+            <div className="pattern-item neutral">
+              <span>Setup</span>
+              <strong>{selectedCoin ? (selectedCoin.price_change_percentage_24h >= 0 ? 'Breakout retest' : 'Support test') : 'Watching'}</strong>
+            </div>
+            <div className="pattern-item neutral">
+              <span>Volume</span>
+              <strong>{selectedCoin ? formatCompact(selectedCoin.total_volume) : '--'}</strong>
+            </div>
+          </div>
         </div>
       </section>
 
