@@ -50,7 +50,6 @@ function App() {
   const [orderType, setOrderType] = useState('market');
   const [amount, setAmount] = useState('0.5');
   const [theme, setTheme] = useState('dark');
-  const [showTradeModal, setShowTradeModal] = useState(false);
   const [toasts, setToasts] = useState([
     { id: 1, type: 'success', text: 'Market feed connected successfully.' },
   ]);
@@ -437,7 +436,20 @@ function App() {
               <button type="button" className="theme-toggle" onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
                 {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
               </button>
-              <button type="button" className="primary-btn" onClick={() => setShowTradeModal(true)}>New Trade</button>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={() => {
+                  setSelectedNav('Markets');
+                  setToast({
+                    id: Date.now(),
+                    type: 'success',
+                    text: `Quick buy flow ready for ${tradeCoin?.symbol?.toUpperCase() || 'BTC'}.`,
+                  });
+                }}
+              >
+                Quick Buy
+              </button>
             </div>
           </header>
 
@@ -456,8 +468,20 @@ function App() {
                   Track momentum, compare top assets, and place entries and exits with a professional-grade market view.
                 </p>
                 <div className="hero-actions">
-                  <button type="button" className="primary-btn" onClick={() => setShowTradeModal(true)}>Explore Markets</button>
-                  <button type="button" className="ghost-btn" onClick={() => setToast({ id: Date.now(), type: 'success', text: 'Portfolio view opened.' })}>View Portfolio</button>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={() => {
+                      setSelectedNav('Markets');
+                      setToast({ id: Date.now(), type: 'success', text: 'Market desk opened.' });
+                    }}
+                  >
+                    Explore Markets
+                  </button>
+                  <button type="button" className="ghost-btn" onClick={() => {
+                    setSelectedNav('Portfolio');
+                    setToast({ id: Date.now(), type: 'success', text: 'Portfolio view opened.' });
+                  }}>View Portfolio</button>
                 </div>
 
                 <div className="quick-action-strip">
@@ -945,7 +969,18 @@ function App() {
                   </div>
                 </div>
 
-                <button type="button" className={`place-order ${orderSide}`} onClick={() => setShowTradeModal(true)}>
+                <button
+                  type="button"
+                  className={`place-order ${orderSide}`}
+                  onClick={() => {
+                    setSelectedNav('Markets');
+                    setToast({
+                      id: Date.now(),
+                      type: orderSide === 'buy' ? 'success' : 'info',
+                      text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order queued for ${selectedCoin?.symbol?.toUpperCase() || 'BTC'}.`,
+                    });
+                  }}
+                >
                   {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
                 </button>
               </div>
@@ -1205,60 +1240,6 @@ function App() {
         ))}
       </div>
 
-      {showTradeModal && (
-        <div className="modal-backdrop" onClick={() => setShowTradeModal(false)}>
-          <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <span className="eyebrow">Order confirmation</span>
-                <h3>{orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase()}</h3>
-              </div>
-              <button type="button" className="close-btn" onClick={() => setShowTradeModal(false)}>×</button>
-            </div>
-
-            <div className="modal-body">
-              <label className="modal-field">
-                <span>Coin</span>
-                <select value={tradeCoinId} onChange={(event) => setTradeCoinId(event.target.value)}>
-                  {coins.map((coin) => (
-                    <option key={coin.id} value={coin.id}>{coin.name} ({coin.symbol.toUpperCase()})</option>
-                  ))}
-                </select>
-              </label>
-              <div className="summary-line">
-                <span>Order type</span>
-                <strong>{orderType}</strong>
-              </div>
-              <div className="summary-line">
-                <span>Amount</span>
-                <strong>{amount} {tradeCoin?.symbol?.toUpperCase()}</strong>
-              </div>
-              <div className="summary-line highlight">
-                <span>Total</span>
-                <strong>{formatCurrency(orderTotal)}</strong>
-              </div>
-            </div>
-
-            <div className="modal-actions">
-              <button type="button" className="ghost-btn" onClick={() => setShowTradeModal(false)}>Cancel</button>
-              <button
-                type="button"
-                className="primary-btn"
-                onClick={() => {
-                  setShowTradeModal(false);
-                  setToast({
-                    id: Date.now(),
-                    type: orderSide === 'buy' ? 'success' : 'info',
-                    text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order placed for ${tradeCoin?.symbol?.toUpperCase()}`,
-                  });
-                }}
-              >
-                Confirm order
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
