@@ -9,13 +9,82 @@ import {
   Tooltip,
   Legend,
   Filler,
+  ArcElement,
 } from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
+import zoomPlugin from 'chartjs-plugin-zoom';
+import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import marketApi from './services/marketApi';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler, ArcElement, zoomPlugin);
 
-const DEFAULT_IDS = ['bitcoin', 'ethereum', 'solana', 'bnb', 'xrp', 'dogecoin', 'cardano', 'polygon'];
+const normalizeCoinIds = (ids = []) => Array.from(
+  new Set(
+    (Array.isArray(ids) ? ids : [ids])
+      .flatMap((value) => String(value || '').split(','))
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  )
+).slice(0, 100);
+
+const TOP_50_IDS = normalizeCoinIds([
+  'bitcoin', 'ethereum', 'tether', 'binancecoin', 'solana', 'ripple', 'usd-coin', 'dogecoin',
+  'tron', 'cardano', 'avalanche-2', 'polygon', 'chainlink', 'litecoin', 'staked-ether', 'okb',
+  'monero', 'toncoin', 'cosmos', 'near', 'vechain', 'filecoin', 'internet-computer', 'stellar',
+  'algorand', 'optimism', 'arbitrum', 'kaspa', 'sui', 'aptos', 'injective-protocol', 'mantle',
+  'stacks', 'tezos', 'theta-token', 'neo', 'lisk', 'polkadot', 'uniswap', 'sei-network', 'celestia',
+  'flow', 'pepe', 'render-token', 'dai', 'rocket-pool', 'fetch-ai', 'aave', 'fantom', 'maker',
+  'bitcoin-cash', 'eos', 'true-usd', 'binance-usd', 'wrapped-bitcoin', 'ethena-usd', 'gmx', 'dydx', 'magic'
+]);
+
+const DEFAULT_IDS = normalizeCoinIds([
+  ...TOP_50_IDS,
+  'ethereum-classic', 'cronos', 'helium', 'theta-fuel', 'quant-network', 'bonk', 'gala',
+  'klay-token', 'the-graph', 'zcash', 'pax-dollar', 'elrond-erd-2', 'waves', 'thorchain', 'iota',
+  'nem', '0x', 'basic-attention-token', 'ankr', 'enjincoin', 'status', 'pancakeswap-token',
+  'curve-dao-token', 'compound-governance-token', '1inch', 'bittorrent', 'chiliz', 'flare-networks',
+  'radix', 'decentraland', 'synthetix-network-token', 'pax-gold', 'tronix', 'superfarm', 'ravencoin',
+  'nano', 'digibyte', 'celo', 'holo', 'nimiq', 'zilliqa', 'ontology', 'wanchain', 'bytom',
+  'metis-token', 'loom-network', 'coingecko', 'wrapped-eos', 'bitcoin-sv', 'aioz-network', 'bridge-oracle',
+  'ethena', 'immutable-x', 'blur', 'beam', 'oasis-network', 'space-id', 'book-of-meme', 'manta-network',
+  'hyperliquid', 'eigenlayer', 'safe', 'ondo-finance', 'tether-gold', 'usdc', 'jito', 'multiversx',
+  'ens', 'osmosis', 'gitcoin', 'snx', 'wrapped-btc', 'moonbeam', 'opbnb', 'mana', 'arkham', 'coredao',
+  'base', 'blast', 'berachain', 'fartcoin', 'zksync'
+]);
+
+const getSafeCoinImage = (coin) => {
+  const candidates = [
+    coin?.image,
+    coin?.large,
+    coin?.thumb,
+    coin?.small,
+    coin?.logo,
+    coin?.icon,
+  ];
+
+  for (const raw of candidates) {
+    if (typeof raw === 'string' && /^https?:\/\//i.test(raw.trim())) {
+      return raw.trim();
+    }
+  }
+
+  const symbol = (coin?.symbol || coin?.name || 'C').toString().trim().slice(0, 3).toUpperCase() || 'C';
+  const initial = symbol.charAt(0) || 'C';
+  const bg = Number(coin?.price_change_percentage_24h || 0) >= 0 ? '#1dbf73' : '#ff6b6b';
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <defs>
+        <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="${bg}"/>
+          <stop offset="100%" stop-color="#0f172a"/>
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" rx="20" fill="url(#g)"/>
+      <text x="50" y="58" text-anchor="middle" font-size="42" fill="#ffffff" font-family="Arial, sans-serif" font-weight="700">${initial}</text>
+    </svg>
+  `;
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+};
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-US', {
@@ -38,9 +107,13 @@ function App() {
   const [tradeCoinId, setTradeCoinId] = useState('bitcoin');
   const [query, setQuery] = useState('');
   const [range, setRange] = useState(7);
+  const [showMoreCoins, setShowMoreCoins] = useState(8);
+  const [detailExpanded, setDetailExpanded] = useState(true);
+  const [chartMode, setChartMode] = useState('price');
   const [sortBy, setSortBy] = useState('market_cap');
   const [quickFilter, setQuickFilter] = useState('all');
   const [selectedNav, setSelectedNav] = useState('Dashboard');
+  const [marketTab, setMarketTab] = useState('overview');
   const [searchOpen, setSearchOpen] = useState(false);
   const [chartData, setChartData] = useState({ labels: [], datasets: [] });
   const [candleChartData, setCandleChartData] = useState({ labels: [], datasets: [] });
@@ -91,7 +164,7 @@ function App() {
     const loadMarket = async () => {
       try {
         setLoading(true);
-        const data = await marketApi.getMarket(DEFAULT_IDS);
+        const data = await marketApi.getMarket(TOP_50_IDS);
         setCoins(data);
         setError('');
 
@@ -107,7 +180,7 @@ function App() {
 
     const loadOverview = async () => {
       try {
-        const data = await marketApi.getOverview(DEFAULT_IDS);
+        const data = await marketApi.getOverview(TOP_50_IDS);
         setOverview(data);
       } catch (err) {
         console.error('Overview fetch error:', err);
@@ -144,8 +217,10 @@ function App() {
     const loadChart = async () => {
       if (!selectedId) return;
 
+      const chartDays = range === 'max' ? 3650 : Number(range);
+
       try {
-        const data = await marketApi.getChart(selectedId, range);
+        const data = await marketApi.getChart(selectedId, chartDays);
         setChartData({
           labels: data.labels,
           datasets: [
@@ -205,8 +280,48 @@ function App() {
           coin.name.toLowerCase().includes(term) ||
           coin.symbol.toLowerCase().includes(term)
       )
-      .slice(0, 6);
+      .slice(0, 12);
   }, [coins, query]);
+
+  const getCoinSegment = (coin) => {
+    const coinId = (coin.id || '').toLowerCase();
+    const symbol = (coin.symbol || '').toLowerCase();
+    const name = (coin.name || '').toLowerCase();
+
+    if (['tether', 'usd-coin', 'binance-usd', 'dai', 'true-usd', 'pax-dollar', 'ethena-usd'].includes(coinId)) {
+      return 'stable';
+    }
+
+    if (['dogecoin', 'pepe', 'bonk', 'meme', 'dogwifhat', 'floki', 'book-of-meme'].includes(coinId) || ['meme', 'doge', 'pepe', 'bonk'].some((term) => name.includes(term) || symbol.includes(term))) {
+      return 'meme';
+    }
+
+    if (['bitcoin', 'ethereum', 'solana', 'cardano', 'avalanche-2', 'polkadot', 'near', 'cosmos', 'algorand', 'sui', 'aptos', 'tron', 'flow', 'tezos', 'sei-network', 'mantle', 'arbitrum', 'optimism', 'injective-protocol', 'celestia', 'filecoin', 'internet-computer', 'stacks', 'kaspa'].includes(coinId) || ['bitcoin', 'ethereum', 'solana', 'cardano', 'avalanche', 'polkadot', 'near', 'cosmos', 'algorand', 'flow'].some((term) => name.includes(term) || symbol.includes(term))) {
+      return 'layer1';
+    }
+
+    if (['uniswap', 'aave', 'maker', 'curve-dao-token', 'pancakeswap-token', 'synthetix-network-token', 'compound-governance-token', '1inch', 'lido-dao', 'yearn-finance', 'rocket-pool', 'convex-finance', 'gmx', 'dydx', 'injective-protocol', 'balancer', 'the-graph'].includes(coinId) || ['uniswap', 'aave', 'maker', 'curve', 'pancakeswap', 'synthetix', 'rocket pool', 'balancer', 'gmx', 'dydx'].some((term) => name.includes(term) || symbol.includes(term))) {
+      return 'defi';
+    }
+
+    if (['render-token', 'fetch-ai', 'the-graph', 'ai16z', 'internet-computer', 'filecoin', 'oasis', 'bittensor', 'near'].includes(coinId) || ['render', 'ai', 'graph', 'oasis', 'bittensor'].some((term) => name.includes(term) || symbol.includes(term))) {
+      return 'ai';
+    }
+
+    return 'market';
+  };
+
+  const marketSegmentOptions = [
+    { key: 'all', label: 'All' },
+    { key: 'gainers', label: 'Gainers' },
+    { key: 'losers', label: 'Losers' },
+    { key: 'layer1', label: 'Layer 1' },
+    { key: 'defi', label: 'DeFi' },
+    { key: 'stable', label: 'Stablecoins' },
+    { key: 'meme', label: 'Meme' },
+    { key: 'ai', label: 'AI & Infra' },
+    { key: 'watchlist', label: 'Watchlist' },
+  ];
 
   const filteredCoins = useMemo(() => {
     const baseList = coins.filter(
@@ -215,20 +330,44 @@ function App() {
         coin.symbol.toLowerCase().includes(query.toLowerCase())
     );
 
+    const topList = !query.trim() && quickFilter === 'all' ? baseList.slice(0, 50) : baseList;
+
     if (quickFilter === 'gainers') {
-      return baseList.filter((coin) => coin.price_change_percentage_24h >= 0);
+      return topList.filter((coin) => coin.price_change_percentage_24h >= 0);
     }
 
     if (quickFilter === 'losers') {
-      return baseList.filter((coin) => coin.price_change_percentage_24h < 0);
+      return topList.filter((coin) => coin.price_change_percentage_24h < 0);
     }
 
     if (quickFilter === 'watchlist') {
-      return baseList.filter((coin) => watchlist.includes(coin.id));
+      return topList.filter((coin) => watchlist.includes(coin.id));
     }
 
-    return baseList;
+    if (['layer1', 'defi', 'stable', 'meme', 'ai'].includes(quickFilter)) {
+      return topList.filter((coin) => getCoinSegment(coin) === quickFilter);
+    }
+
+    return topList;
   }, [coins, query, quickFilter, watchlist]);
+
+  const marketSegmentSummary = useMemo(() => {
+    const segments = ['layer1', 'defi', 'stable', 'meme', 'ai'];
+
+    return segments.map((segment) => {
+      const segmentCoins = coins.filter((coin) => getCoinSegment(coin) === segment);
+      const averageChange = segmentCoins.length
+        ? segmentCoins.reduce((sum, coin) => sum + (Number(coin.price_change_percentage_24h) || 0), 0) / segmentCoins.length
+        : 0;
+
+      return {
+        key: segment,
+        label: segment === 'layer1' ? 'Layer 1' : segment === 'defi' ? 'DeFi' : segment === 'stable' ? 'Stablecoins' : segment === 'meme' ? 'Meme' : 'AI & Infra',
+        count: segmentCoins.length,
+        averageChange,
+      };
+    });
+  }, [coins]);
 
   const sortedCoins = useMemo(() => {
     const list = [...filteredCoins];
@@ -246,9 +385,125 @@ function App() {
     }
   }, [filteredCoins, sortBy]);
 
+  const visibleMarketCoins = useMemo(
+    () => sortedCoins.slice(0, showMoreCoins),
+    [sortedCoins, showMoreCoins]
+  );
+
   const selectedCoin = coins.find((coin) => coin.id === selectedId) || coins[0];
   const tradeCoin = coins.find((coin) => coin.id === tradeCoinId) || selectedCoin || coins[0];
   const watchlistCoins = coins.filter((coin) => watchlist.includes(coin.id));
+
+  const rangeOptions = [
+    { value: 1, label: '1D' },
+    { value: 7, label: '7D' },
+    { value: 30, label: '30D' },
+    { value: 90, label: '90D' },
+    { value: 365, label: '1Y' },
+    { value: 'max', label: 'MAX' },
+  ];
+
+  const chartViewOptions = [
+    { value: 'price', label: 'Price' },
+    { value: 'marketCap', label: 'Market Cap' },
+    { value: 'volume', label: 'Trading Volume' },
+    { value: 'performance', label: 'Performance' },
+    { value: 'allocation', label: 'Portfolio' },
+  ];
+
+  const chartSeries = useMemo(() => {
+    const labels = chartData.labels || [];
+    const series = chartData.datasets?.[0]?.data || [];
+
+    if (!labels.length || !series.length) {
+      return {
+        price: { labels: [], datasets: [] },
+        marketCap: { labels: [], datasets: [] },
+        volume: { labels: [], datasets: [] },
+        performance: { labels: [], datasets: [] },
+      };
+    }
+
+    const baseMarketCap = Number(selectedCoin?.market_cap || 0);
+    const baseVolume = Number(selectedCoin?.total_volume || 0);
+
+    const marketCapData = series.map((price, index) => {
+      const drift = (index / Math.max(series.length - 1, 1)) * 0.18;
+      return Number((baseMarketCap * (0.82 + drift)).toFixed(2));
+    });
+
+    const volumeData = series.map((price, index) => {
+      const drift = 0.7 + (index / Math.max(series.length - 1, 1)) * 0.5;
+      return Number((baseVolume * drift).toFixed(2));
+    });
+
+    const performanceData = series.map((price, index) => {
+      if (index === 0) return 0;
+      const previous = series[index - 1] || price;
+      return Number((((price - previous) / previous) * 100).toFixed(2));
+    });
+
+    return {
+      price: {
+        labels,
+        datasets: [{
+          label: `${selectedCoin?.symbol?.toUpperCase() || 'BTC'} price`,
+          data: series,
+          borderColor: '#5ec4ff',
+          backgroundColor: 'rgba(94, 196, 255, 0.18)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.35,
+        }],
+      },
+      marketCap: {
+        labels,
+        datasets: [{
+          label: 'Market Cap',
+          data: marketCapData,
+          borderColor: '#7c8dff',
+          backgroundColor: 'rgba(124, 141, 255, 0.18)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.35,
+        }],
+      },
+      volume: {
+        labels,
+        datasets: [{
+          label: 'Trading Volume',
+          data: volumeData,
+          borderColor: '#36d399',
+          backgroundColor: 'rgba(54, 211, 153, 0.18)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.35,
+        }],
+      },
+      performance: {
+        labels,
+        datasets: [{
+          label: 'Performance %',
+          data: performanceData,
+          borderColor: '#fbbf24',
+          backgroundColor: 'rgba(251, 191, 36, 0.18)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.35,
+        }],
+      },
+    };
+  }, [chartData, selectedCoin]);
+
+  const allocationChartData = useMemo(() => ({
+    labels: ['BTC', 'ETH', 'SOL', 'Stable'],
+    datasets: [{
+      data: [42, 31, 18, 9],
+      backgroundColor: ['#5ec4ff', '#7c8dff', '#36d399', '#fbbf24'],
+      borderColor: 'rgba(8, 17, 25, 0.88)',
+      borderWidth: 2,
+    }],
+  }), []);
 
   const gainers = useMemo(
     () => [...coins].filter((coin) => coin.price_change_percentage_24h >= 0).sort((a, b) => b.price_change_percentage_24h - a.price_change_percentage_24h).slice(0, 4),
@@ -282,6 +537,8 @@ function App() {
     if (selectedCoin && selectedCoin.id !== tradeCoinId) {
       setTradeCoinId(selectedCoin.id);
     }
+    setDetailExpanded(true);
+    setShowMoreCoins(8);
   }, [selectedCoin, tradeCoinId]);
   const topMovers = useMemo(
     () =>
@@ -323,6 +580,28 @@ function App() {
     { title: 'BTC breakout', detail: 'Above 20-day trend line with rising volume.', tone: 'positive' },
     { title: 'ETH watch', detail: 'Range squeeze building near key resistance.', tone: 'neutral' },
     { title: 'SOL risk', detail: 'Pullback signal needs confirmation before entry.', tone: 'negative' },
+  ], []);
+
+  const orderBook = useMemo(() => ({
+    asks: [
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 1.0018 : 0, size: 1.24, total: 2.11 },
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 1.0013 : 0, size: 1.86, total: 4.18 },
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 1.0009 : 0, size: 2.61, total: 7.44 },
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 1.0005 : 0, size: 3.12, total: 11.2 },
+    ],
+    bids: [
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 0.9994 : 0, size: 2.36, total: 3.27 },
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 0.9989 : 0, size: 2.71, total: 6.42 },
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 0.9982 : 0, size: 3.48, total: 11.19 },
+      { price: selectedCoin?.current_price ? selectedCoin.current_price * 0.9978 : 0, size: 4.08, total: 16.94 },
+    ],
+  }), [selectedCoin]);
+
+  const indicatorRows = useMemo(() => [
+    { label: 'RSI', value: '63.4', status: 'Bullish' },
+    { label: 'MACD', value: 'Positive crossover', status: 'Strong' },
+    { label: 'VWAP', value: 'Above trend', status: 'Confirmed' },
+    { label: 'Momentum', value: 'Accelerating', status: 'Hot' },
   ], []);
 
   const quickActions = useMemo(() => [
@@ -376,6 +655,62 @@ function App() {
     Portfolio: 'Portfolio Health',
     Alerts: 'Signal Alerts',
   };
+
+  const marketTabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'sectors', label: 'Sectors' },
+    { key: 'heatmap', label: 'Heatmap' },
+    { key: 'portfolio', label: 'Portfolio' },
+  ];
+
+  const advancedWidgets = useMemo(() => [
+    { label: 'Order Flow', value: '+12.4%', detail: 'Aggressive buys on BTC/ETH', tone: 'positive' },
+    { label: 'Funding Rate', value: '0.008%', detail: 'Neutral across majors', tone: 'neutral' },
+    { label: 'Liquidity', value: 'High', detail: 'Depth remains healthy', tone: 'positive' },
+    { label: 'Volatility', value: 'Moderate', detail: 'Range expansion normal', tone: 'warning' },
+  ], []);
+
+  const segmentWidgets = useMemo(() => {
+    const palette = ['#5ec4ff', '#7c8dff', '#36d399', '#fbbf24', '#ff6b6b'];
+
+    return marketSegmentSummary.map((segment, index) => ({
+      ...segment,
+      color: palette[index % palette.length],
+      topCoins: coins
+        .filter((coin) => getCoinSegment(coin) === segment.key)
+        .sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
+        .slice(0, 4)
+        .map((coin) => ({
+          id: coin.id,
+          name: coin.name,
+          symbol: coin.symbol.toUpperCase(),
+          change: Number(coin.price_change_percentage_24h || 0),
+        })),
+    }));
+  }, [coins, marketSegmentSummary]);
+
+  const trendingHeatmap = useMemo(
+    () =>
+      [...coins]
+        .sort((a, b) => Math.abs(b.price_change_percentage_24h) - Math.abs(a.price_change_percentage_24h))
+        .slice(0, 18)
+        .map((coin) => ({
+          ...coin,
+          intensity: Math.min(Math.abs(Number(coin.price_change_percentage_24h || 0)) * 8, 100),
+        })),
+    [coins]
+  );
+
+  const portfolioCategoryBreakdown = useMemo(() => {
+    const total = marketSegmentSummary.reduce((sum, segment) => sum + segment.count, 0) || 1;
+    const palette = ['#5ec4ff', '#7c8dff', '#36d399', '#fbbf24', '#ff6b6b'];
+
+    return marketSegmentSummary.map((segment, index) => ({
+      ...segment,
+      weight: Number(((segment.count / total) * 100).toFixed(1)),
+      color: palette[index % palette.length],
+    }));
+  }, [marketSegmentSummary]);
 
   return (
     <div className="app-shell">
@@ -453,7 +788,7 @@ function App() {
                         }}
                       >
                         <div className="coin-meta">
-                          <img src={coin.image} alt={coin.name} />
+                          <img src={getSafeCoinImage(coin)} alt={coin.name} />
                           <div>
                             <strong>{coin.name}</strong>
                             <span>{coin.symbol.toUpperCase()}</span>
@@ -588,7 +923,7 @@ function App() {
                     <div key={coin.id || index} className="mini-rank-item">
                       <div className="coin-meta">
                         <span className="market-rank">#{index + 1}</span>
-                        <img src={coin.image || selectedCoin?.image} alt={coin.name || 'coin'} />
+                        <img src={getSafeCoinImage(coin || selectedCoin)} alt={coin.name || 'coin'} />
                         <div>
                           <strong>{coin.name || coin.symbol?.toUpperCase() || 'BTC'}</strong>
                           <span>{(coin.symbol || '').toUpperCase() || 'BTC'}</span>
@@ -612,7 +947,7 @@ function App() {
                   {gainers.map((coin) => (
                     <div key={coin.id} className="mini-rank-item">
                       <div className="coin-meta">
-                        <img src={coin.image} alt={coin.name} />
+                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
                         <div>
                           <strong>{coin.name}</strong>
                           <span>{coin.symbol.toUpperCase()}</span>
@@ -634,7 +969,7 @@ function App() {
                   {losers.map((coin) => (
                     <div key={coin.id} className="mini-rank-item">
                       <div className="coin-meta">
-                        <img src={coin.image} alt={coin.name} />
+                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
                         <div>
                           <strong>{coin.name}</strong>
                           <span>{coin.symbol.toUpperCase()}</span>
@@ -657,7 +992,7 @@ function App() {
                     <div key={coin.id} className="mini-rank-item">
                       <div className="coin-meta">
                         <span className="market-rank">#{index + 1}</span>
-                        <img src={coin.image} alt={coin.name} />
+                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
                         <div>
                           <strong>{coin.name}</strong>
                           <span>{coin.symbol.toUpperCase()}</span>
@@ -688,7 +1023,7 @@ function App() {
                     {topMovers.map((coin) => (
                       <div key={coin.id} className="mover-item">
                         <div className="coin-meta">
-                          <img src={coin.image} alt={coin.name} />
+                          <img src={getSafeCoinImage(coin)} alt={coin.name} />
                           <div>
                             <strong>{coin.name}</strong>
                             <span>{coin.symbol.toUpperCase()}</span>
@@ -875,337 +1210,685 @@ function App() {
           </section>
 
           <section className={`markets-section ${selectedNav === 'Markets' ? 'section-active' : 'section-hidden'}`}>
-            <section className="market-grid">
-              <div className="coin-list-panel">
-                <div className="panel-header">
-                  <div>
-                    <h3>Market Overview</h3>
-                    <span>{sortedCoins.length} coins</span>
-                  </div>
+            <div className="market-tabs" aria-label="Market tabs">
+              {marketTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={marketTab === tab.key ? 'active' : ''}
+                  onClick={() => setMarketTab(tab.key)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-                  <div className="sort-wrap">
-                    <label htmlFor="sortSelect">Sort</label>
-                    <select id="sortSelect" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-                      <option value="market_cap">Market Cap</option>
-                      <option value="price">Price</option>
-                      <option value="change">24h Change</option>
-                      <option value="symbol">Symbol</option>
-                    </select>
-                  </div>
-
-                  <div className="mini-toggle-group" aria-label="Market filter shortcuts">
-                    {['all', 'gainers', 'losers', 'watchlist'].map((filter) => (
-                      <button
-                        key={filter}
-                        type="button"
-                        className={quickFilter === filter ? 'active' : ''}
-                        onClick={() => setQuickFilter(filter)}
-                      >
-                        {filter === 'all' ? 'All' : filter === 'gainers' ? 'Gainers' : filter === 'losers' ? 'Losers' : 'Watchlist'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {loading ? (
-                  <div className="skeleton-stack">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <div key={i} className="skeleton-card" />
-                    ))}
-                  </div>
-                ) : error ? (
-                  <div className="empty-state error-state">
-                    <div className="empty-icon">!</div>
-                    <h4>Unable to load market data</h4>
-                    <p>{error}</p>
-                  </div>
-                ) : sortedCoins.length === 0 ? (
-                  <div className="empty-state">
-                    <div className="empty-icon">⌕</div>
-                    <h4>No crypto found</h4>
-                    <p>Try a different search term or reset the filter.</p>
-                  </div>
-                ) : (
-                  sortedCoins.map((coin) => (
-                    <button
-                      key={coin.id}
-                      type="button"
-                      className={`coin-card ${selectedCoin?.id === coin.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedId(coin.id)}
-                    >
-                      <div className="coin-meta">
-                        <img src={coin.image} alt={coin.name} />
-                        <div>
-                          <strong>{coin.name}</strong>
-                          <span>{coin.symbol.toUpperCase()}</span>
-                        </div>
-                      </div>
-
-                      <div className="coin-price">
-                        <strong>{formatCurrency(coin.current_price)}</strong>
-                        <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                          {formatPercent(coin.price_change_percentage_24h)}
-                        </span>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-
-              <div className="details-panel">
-                {selectedCoin ? (
-                  <>
-                    <div className="coin-header">
+            {marketTab === 'overview' && (
+              <>
+                {selectedCoin && detailExpanded && (
+                  <section className="panel-card coin-detail-hero">
+                    <div className="coin-header detail-header">
                       <div className="coin-meta large">
-                        <img src={selectedCoin.image} alt={selectedCoin.name} />
+                        <img src={getSafeCoinImage(selectedCoin)} alt={selectedCoin.name} />
                         <div>
                           <h2>{selectedCoin.name}</h2>
-                          <span>{selectedCoin.symbol.toUpperCase()}</span>
+                          <span>{selectedCoin.symbol.toUpperCase()} • {selectedCoin.market_cap_rank ? `#${selectedCoin.market_cap_rank}` : 'Market'}</span>
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        className="watch-btn"
-                        onClick={() => toggleWatchlist(selectedCoin.id)}
-                      >
-                        {watchlist.includes(selectedCoin.id) ? '★ Saved' : '☆ Add to Watchlist'}
-                      </button>
+                      <div className="detail-actions">
+                        <button type="button" className="ghost-btn" onClick={() => setDetailExpanded(false)}>
+                          Collapse
+                        </button>
+                        <button type="button" className="primary-btn" onClick={() => setSelectedNav('Watchlist')}>
+                          Add to watchlist
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="price-row">
+                    <div className="price-row detail-price-row">
                       <h3>{formatCurrency(selectedCoin.current_price)}</h3>
                       <span className={selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
                         {formatPercent(selectedCoin.price_change_percentage_24h)}
                       </span>
                     </div>
 
-                    <div className="stats-grid">
+                    <div className="detail-metrics">
+                      <div><span>Market cap</span><strong>{formatCompact(selectedCoin.market_cap)}</strong></div>
+                      <div><span>24h Volume</span><strong>{formatCompact(selectedCoin.total_volume)}</strong></div>
+                      <div><span>High / Low</span><strong>{formatCurrency(selectedCoin.high_24h)} / {formatCurrency(selectedCoin.low_24h)}</strong></div>
+                      <div><span>Dominance</span><strong>{formatPercent((selectedCoin.market_cap / Math.max(globalStats.totalMarketCap, 1)) * 100)}</strong></div>
+                    </div>
+                  </section>
+                )}
+
+                {!detailExpanded && selectedCoin && (
+                  <div className="detail-collapse-row">
+                    <button type="button" className="ghost-btn" onClick={() => setDetailExpanded(true)}>
+                      Open coin detail page
+                    </button>
+                  </div>
+                )}
+
+                <section className="market-grid">
+                  <div className="coin-list-panel">
+                    <div className="panel-header">
                       <div>
-                        <span>Market Rank</span>
-                        <strong>#{selectedCoin.market_cap_rank || '--'}</strong>
+                        <h3>Market Overview</h3>
+                        <span>{sortedCoins.length} coins</span>
                       </div>
-                      <div>
-                        <span>Market Cap</span>
-                        <strong>{formatCompact(selectedCoin.market_cap)}</strong>
+
+                      <div className="sort-wrap">
+                        <label htmlFor="sortSelect">Sort</label>
+                        <select id="sortSelect" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                          <option value="market_cap">Market Cap</option>
+                          <option value="price">Price</option>
+                          <option value="change">24h Change</option>
+                          <option value="symbol">Symbol</option>
+                        </select>
                       </div>
-                      <div>
-                        <span>24h Volume</span>
-                        <strong>{formatCompact(selectedCoin.total_volume)}</strong>
-                      </div>
-                      <div>
-                        <span>24h High</span>
-                        <strong>{formatCurrency(selectedCoin.high_24h)}</strong>
-                      </div>
-                      <div>
-                        <span>24h Low</span>
-                        <strong>{formatCurrency(selectedCoin.low_24h)}</strong>
-                      </div>
-                      <div>
-                        <span>Circulating Supply</span>
-                        <strong>{formatCompact(selectedCoin.circulating_supply)}</strong>
+
+                      <div className="mini-toggle-group" aria-label="Market filter shortcuts">
+                        {marketSegmentOptions.map((filter) => (
+                          <button
+                            key={filter.key}
+                            type="button"
+                            className={quickFilter === filter.key ? 'active' : ''}
+                            onClick={() => setQuickFilter(filter.key)}
+                          >
+                            {filter.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
-                    <div className="chart-box">
-                      <div className="chart-header">
-                        <h4>Price History</h4>
-                        <div className="range-selector">
-                          {[1, 7, 30, 90, 365].map((value) => (
-                            <button
-                              key={value}
-                              type="button"
-                              className={range === value ? 'active' : ''}
-                              onClick={() => setRange(value)}
-                            >
-                              {value === 1 ? '1D' : value === 7 ? '7D' : value === 30 ? '30D' : value === 90 ? '90D' : '1Y'}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                    <div className="market-segment-grid">
+                      {marketSegmentSummary.map((segment) => (
+                        <button
+                          key={segment.key}
+                          type="button"
+                          className={`market-segment-card ${quickFilter === segment.key ? 'active' : ''}`}
+                          onClick={() => setQuickFilter(segment.key)}
+                        >
+                          <span>{segment.label}</span>
+                          <strong>{segment.count}</strong>
+                          <small className={segment.averageChange >= 0 ? 'positive' : 'negative'}>
+                            {segment.averageChange >= 0 ? '+' : ''}{segment.averageChange.toFixed(2)}%
+                          </small>
+                        </button>
+                      ))}
+                    </div>
 
-                      <Line
-                        data={chartData}
+                    {loading ? (
+                      <div className="skeleton-stack">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div key={i} className="skeleton-card" />
+                        ))}
+                      </div>
+                    ) : error ? (
+                      <div className="empty-state error-state">
+                        <div className="empty-icon">!</div>
+                        <h4>Unable to load market data</h4>
+                        <p>{error}</p>
+                      </div>
+                    ) : sortedCoins.length === 0 ? (
+                      <div className="empty-state">
+                        <div className="empty-icon">⌕</div>
+                        <h4>No crypto found</h4>
+                        <p>Try a different search term or reset the filter.</p>
+                      </div>
+                    ) : (
+                      <>
+                        {visibleMarketCoins.map((coin) => (
+                          <button
+                            key={coin.id}
+                            type="button"
+                            className={`coin-card ${selectedCoin?.id === coin.id ? 'selected' : ''}`}
+                            onClick={() => setSelectedId(coin.id)}
+                          >
+                            <div className="coin-meta">
+                              <img src={getSafeCoinImage(coin)} alt={coin.name} />
+                              <div>
+                                <strong>{coin.name}</strong>
+                                <span>{coin.symbol.toUpperCase()}</span>
+                              </div>
+                            </div>
+
+                            <div className="coin-price">
+                              <strong>{formatCurrency(coin.current_price)}</strong>
+                              <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                                {formatPercent(coin.price_change_percentage_24h)}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+
+                        {sortedCoins.length > visibleMarketCoins.length && (
+                          <button type="button" className="show-more-btn" onClick={() => setShowMoreCoins((current) => current + 8)}>
+                            Show more
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="details-panel">
+                    {selectedCoin ? (
+                      <>
+                        <div className="coin-header">
+                          <div className="coin-meta large">
+                            <img src={getSafeCoinImage(selectedCoin)} alt={selectedCoin.name} />
+                            <div>
+                              <h2>{selectedCoin.name}</h2>
+                              <span>{selectedCoin.symbol.toUpperCase()}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="watch-btn"
+                            onClick={() => toggleWatchlist(selectedCoin.id)}
+                          >
+                            {watchlist.includes(selectedCoin.id) ? '★ Saved' : '☆ Add to Watchlist'}
+                          </button>
+                        </div>
+
+                        <div className="price-row">
+                          <h3>{formatCurrency(selectedCoin.current_price)}</h3>
+                          <span className={selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                            {formatPercent(selectedCoin.price_change_percentage_24h)}
+                          </span>
+                        </div>
+
+                        <div className="stats-grid">
+                          <div>
+                            <span>Market Rank</span>
+                            <strong>#{selectedCoin.market_cap_rank || '--'}</strong>
+                          </div>
+                          <div>
+                            <span>Market Cap</span>
+                            <strong>{formatCompact(selectedCoin.market_cap)}</strong>
+                          </div>
+                          <div>
+                            <span>24h Volume</span>
+                            <strong>{formatCompact(selectedCoin.total_volume)}</strong>
+                          </div>
+                          <div>
+                            <span>24h High</span>
+                            <strong>{formatCurrency(selectedCoin.high_24h)}</strong>
+                          </div>
+                          <div>
+                            <span>24h Low</span>
+                            <strong>{formatCurrency(selectedCoin.low_24h)}</strong>
+                          </div>
+                          <div>
+                            <span>Circulating Supply</span>
+                            <strong>{formatCompact(selectedCoin.circulating_supply)}</strong>
+                          </div>
+                        </div>
+
+                        <div className="chart-box">
+                          <div className="chart-header">
+                            <div className="chart-heading-wrap">
+                              <h4>{chartViewOptions.find((item) => item.value === chartMode)?.label || 'Price'} History</h4>
+                              <div className="chart-mode-selector">
+                                {chartViewOptions.map((item) => (
+                                  <button
+                                    key={item.value}
+                                    type="button"
+                                    className={chartMode === item.value ? 'active' : ''}
+                                    onClick={() => setChartMode(item.value)}
+                                  >
+                                    {item.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="range-selector">
+                              {rangeOptions.map((option) => (
+                                <button
+                                  key={option.label}
+                                  type="button"
+                                  className={range === option.value ? 'active' : ''}
+                                  onClick={() => setRange(option.value)}
+                                >
+                                  {option.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {chartMode === 'allocation' ? (
+                            <div className="allocation-chart-wrap">
+                              <Doughnut
+                                data={allocationChartData}
+                                options={{
+                                  responsive: true,
+                                  maintainAspectRatio: false,
+                                  cutout: '55%',
+                                  plugins: {
+                                    legend: {
+                                      position: 'bottom',
+                                      labels: { color: '#9db5d1', usePointStyle: true, pointStyle: 'circle' },
+                                    },
+                                    tooltip: { enabled: true },
+                                  },
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <Line
+                              data={chartSeries[chartMode] || chartSeries.price}
+                              options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                  legend: { display: false },
+                                  tooltip: { mode: 'index', intersect: false },
+                                  zoom: {
+                                    pan: { enabled: true, mode: 'x' },
+                                    zoom: {
+                                      wheel: { enabled: true },
+                                      pinch: { enabled: true },
+                                      mode: 'x',
+                                    },
+                                  },
+                                },
+                                interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                                scales: {
+                                  x: {
+                                    ticks: { color: '#9db5d1' },
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                  },
+                                  y: {
+                                    ticks: { color: '#9db5d1', callback: (value) => {
+                                      const label = Number(value);
+                                      if (chartMode === 'performance') return `${label.toFixed(2)}%`;
+                                      if (chartMode === 'marketCap' || chartMode === 'volume') return `$${Number(label).toLocaleString()}`;
+                                      return `$${Number(label).toLocaleString()}`;
+                                    } },
+                                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                  },
+                                },
+                              }}
+                            />
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="empty-state">
+                        <div className="empty-icon">◎</div>
+                        <h4>Select a coin</h4>
+                        <p>Choose a market to view detailed stats and price history.</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="trading-grid">
+                  <div className="panel-card order-panel">
+                    <div className="panel-header">
+                      <h3>Trade Ticket</h3>
+                      <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+                    </div>
+
+                    <div className="segmented-control">
+                      <button type="button" className={orderSide === 'buy' ? 'active' : ''} onClick={() => setOrderSide('buy')}>
+                        Buy
+                      </button>
+                      <button type="button" className={orderSide === 'sell' ? 'active' : ''} onClick={() => setOrderSide('sell')}>
+                        Sell
+                      </button>
+                    </div>
+
+                    <div className="ticket-form">
+                      <label>
+                        Order type
+                        <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
+                          <option value="market">Market</option>
+                          <option value="limit">Limit</option>
+                          <option value="stop">Stop</option>
+                        </select>
+                      </label>
+
+                      <label>
+                        Amount
+                        <div className="amount-row">
+                          <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                          <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="order-summary">
+                      <div>
+                        <span>Market price</span>
+                        <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
+                      </div>
+                      <div>
+                        <span>Est. total</span>
+                        <strong>{selectedCoin ? formatCurrency(orderTotal) : '--'}</strong>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={`place-order ${orderSide}`}
+                      onClick={() => {
+                        setSelectedNav('Markets');
+                        setToast({
+                          id: Date.now(),
+                          type: orderSide === 'buy' ? 'success' : 'info',
+                          text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order queued for ${selectedCoin?.symbol?.toUpperCase() || 'BTC'}.`,
+                        });
+                      }}
+                    >
+                      {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
+                    </button>
+                  </div>
+
+                  <div className="panel-card candle-panel">
+                    <div className="panel-header">
+                      <h3>Candlestick Pattern</h3>
+                      <span>{range === 1 ? '1D' : `${range}D`}</span>
+                    </div>
+
+                    <div className="candle-chart-wrap">
+                      <Bar
+                        data={candleChartData}
                         options={{
                           responsive: true,
                           maintainAspectRatio: false,
-                          plugins: {
-                            legend: { display: false },
-                            tooltip: { mode: 'index', intersect: false },
-                          },
-                          interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                          plugins: { legend: { display: false }, tooltip: { enabled: true } },
                           scales: {
-                            x: {
-                              ticks: { color: '#9db5d1' },
-                              grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            },
-                            y: {
-                              ticks: { color: '#9db5d1', callback: (value) => '$' + value.toLocaleString() },
-                              grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                            },
+                            x: { display: false },
+                            y: { display: false },
                           },
+                          borderSkipped: false,
                         }}
                       />
                     </div>
-                  </>
-                ) : (
-                  <div className="empty-state">
-                    <div className="empty-icon">◎</div>
-                    <h4>Select a coin</h4>
-                    <p>Choose a market to view detailed stats and price history.</p>
-                  </div>
-                )}
-              </div>
-            </section>
 
-            <section className="trading-grid">
-              <div className="panel-card order-panel">
-                <div className="panel-header">
-                  <h3>Trade Ticket</h3>
-                  <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
-                </div>
-
-                <div className="segmented-control">
-                  <button type="button" className={orderSide === 'buy' ? 'active' : ''} onClick={() => setOrderSide('buy')}>
-                    Buy
-                  </button>
-                  <button type="button" className={orderSide === 'sell' ? 'active' : ''} onClick={() => setOrderSide('sell')}>
-                    Sell
-                  </button>
-                </div>
-
-                <div className="ticket-form">
-                  <label>
-                    Order type
-                    <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
-                      <option value="market">Market</option>
-                      <option value="limit">Limit</option>
-                      <option value="stop">Stop</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    Amount
-                    <div className="amount-row">
-                      <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-                      <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+                    <div className="pattern-list">
+                      <div className="pattern-item positive">
+                        <span>Trend</span>
+                        <strong>{selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'Bullish' : 'Cooling'}</strong>
+                      </div>
+                      <div className="pattern-item neutral">
+                        <span>Setup</span>
+                        <strong>{selectedCoin ? (selectedCoin.price_change_percentage_24h >= 0 ? 'Breakout retest' : 'Support test') : 'Watching'}</strong>
+                      </div>
+                      <div className="pattern-item neutral">
+                        <span>Volume</span>
+                        <strong>{selectedCoin ? formatCompact(selectedCoin.total_volume) : '--'}</strong>
+                      </div>
                     </div>
-                  </label>
-                </div>
-
-                <div className="order-summary">
-                  <div>
-                    <span>Market price</span>
-                    <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
                   </div>
-                  <div>
-                    <span>Est. total</span>
-                    <strong>{selectedCoin ? formatCurrency(orderTotal) : '--'}</strong>
-                  </div>
-                </div>
+                </section>
 
-                <button
-                  type="button"
-                  className={`place-order ${orderSide}`}
-                  onClick={() => {
-                    setSelectedNav('Markets');
-                    setToast({
-                      id: Date.now(),
-                      type: orderSide === 'buy' ? 'success' : 'info',
-                      text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order queued for ${selectedCoin?.symbol?.toUpperCase() || 'BTC'}.`,
-                    });
-                  }}
-                >
-                  {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
-                </button>
-              </div>
+                <section className="exchange-grid">
+                  <div className="panel-card order-book-panel">
+                    <div className="panel-header">
+                      <h3>Order Book</h3>
+                      <span>Live depth</span>
+                    </div>
 
-              <div className="panel-card candle-panel">
-                <div className="panel-header">
-                  <h3>Candlestick Pattern</h3>
-                  <span>{range === 1 ? '1D' : `${range}D`}</span>
-                </div>
+                    <div className="order-book-header">
+                      <span>Price</span>
+                      <span>Size</span>
+                      <span>Total</span>
+                    </div>
 
-                <div className="candle-chart-wrap">
-                  <Bar
-                    data={candleChartData}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: { legend: { display: false }, tooltip: { enabled: true } },
-                      scales: {
-                        x: { display: false },
-                        y: { display: false },
-                      },
-                      borderSkipped: false,
-                    }}
-                  />
-                </div>
-
-                <div className="pattern-list">
-                  <div className="pattern-item positive">
-                    <span>Trend</span>
-                    <strong>{selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'Bullish' : 'Cooling'}</strong>
-                  </div>
-                  <div className="pattern-item neutral">
-                    <span>Setup</span>
-                    <strong>{selectedCoin ? (selectedCoin.price_change_percentage_24h >= 0 ? 'Breakout retest' : 'Support test') : 'Watching'}</strong>
-                  </div>
-                  <div className="pattern-item neutral">
-                    <span>Volume</span>
-                    <strong>{selectedCoin ? formatCompact(selectedCoin.total_volume) : '--'}</strong>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="panel-card table-panel">
-              <div className="panel-header">
-                <h3>Market Table</h3>
-                <span>Top assets</span>
-              </div>
-
-              {sortedCoins.length ? (
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Asset</th>
-                      <th>Price</th>
-                      <th>Market Cap</th>
-                      <th>24h</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedCoins.slice(0, 5).map((coin) => (
-                      <tr key={coin.id}>
-                        <td>
-                          <div className="table-coin">
-                            <img src={coin.image} alt={coin.name} />
-                            <div>
-                              <strong>{coin.name}</strong>
-                              <span>{coin.symbol.toUpperCase()}</span>
-                            </div>
+                    <div className="order-book-columns">
+                      <div className="book-column asks-column">
+                        {orderBook.asks.map((row, index) => (
+                          <div key={`ask-${index}`} className="book-row ask-row">
+                            <span>{formatCurrency(row.price)}</span>
+                            <span>{row.size.toFixed(2)}</span>
+                            <span>{row.total.toFixed(2)}</span>
                           </div>
-                        </td>
-                        <td>{formatCurrency(coin.current_price)}</td>
-                        <td>{formatCompact(coin.market_cap)}</td>
-                        <td className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                          {formatPercent(coin.price_change_percentage_24h)}
-                        </td>
-                        <td><button className="link-btn" type="button" onClick={() => setSelectedId(coin.id)}>View</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">∎</div>
-                  <h4>No rows to display</h4>
-                  <p>Adjust your market filter to show available assets.</p>
+                        ))}
+                      </div>
+
+                      <div className="spread-box">
+                        <small>Spread</small>
+                        <strong>{selectedCoin ? formatCurrency(Math.abs((orderBook.bids[0]?.price || 0) - (orderBook.asks[0]?.price || 0))) : '$0.00'}</strong>
+                      </div>
+
+                      <div className="book-column bids-column">
+                        {orderBook.bids.map((row, index) => (
+                          <div key={`bid-${index}`} className="book-row bid-row">
+                            <span>{formatCurrency(row.price)}</span>
+                            <span>{row.size.toFixed(2)}</span>
+                            <span>{row.total.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="panel-card indicator-panel">
+                    <div className="panel-header">
+                      <h3>Indicators</h3>
+                      <span>AI + TA</span>
+                    </div>
+
+                    <div className="indicator-list">
+                      {indicatorRows.map((item) => (
+                        <div key={item.label} className="indicator-row">
+                          <div>
+                            <span>{item.label}</span>
+                            <strong>{item.value}</strong>
+                          </div>
+                          <span className={item.status === 'Bullish' || item.status === 'Strong' || item.status === 'Confirmed' ? 'positive' : 'neutral'}>{item.status}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="feed-panel">
+                      <div className="feed-item positive">
+                        <span>Trend</span>
+                        <strong>Uptrend intact</strong>
+                      </div>
+                      <div className="feed-item neutral">
+                        <span>Volume</span>
+                        <strong>Above average</strong>
+                      </div>
+                      <div className="feed-item warning">
+                        <span>Risk</span>
+                        <strong>Moderate</strong>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="panel-card table-panel">
+                  <div className="panel-header">
+                    <h3>Market Table</h3>
+                    <span>Top assets</span>
+                  </div>
+
+                  {sortedCoins.length ? (
+                    <>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Asset</th>
+                            <th>Price</th>
+                            <th>Market Cap</th>
+                            <th>24h</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleMarketCoins.slice(0, 5).map((coin) => (
+                            <tr key={coin.id}>
+                              <td>
+                                <div className="table-coin">
+                                  <img src={getSafeCoinImage(coin)} alt={coin.name} />
+                                  <div>
+                                    <strong>{coin.name}</strong>
+                                    <span>{coin.symbol.toUpperCase()}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>{formatCurrency(coin.current_price)}</td>
+                              <td>{formatCompact(coin.market_cap)}</td>
+                              <td className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                                {formatPercent(coin.price_change_percentage_24h)}
+                              </td>
+                              <td><button className="link-btn" type="button" onClick={() => setSelectedId(coin.id)}>View</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      {sortedCoins.length > visibleMarketCoins.length && (
+                        <div className="table-actions">
+                          <button type="button" className="show-more-btn" onClick={() => setShowMoreCoins((current) => current + 8)}>
+                            Show more
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="empty-state">
+                      <div className="empty-icon">∎</div>
+                      <h4>No rows to display</h4>
+                      <p>Adjust your market filter to show available assets.</p>
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+
+            {marketTab === 'sectors' && (
+              <section className="sector-panel-grid">
+                {segmentWidgets.map((segment) => (
+                  <div key={segment.key} className="panel-card sector-card">
+                    <div className="panel-header">
+                      <h3>{segment.label}</h3>
+                      <span>{segment.count} assets</span>
+                    </div>
+
+                    <div className="sector-metric-row">
+                      <strong>{segment.averageChange >= 0 ? '+' : ''}{segment.averageChange.toFixed(2)}%</strong>
+                      <span>avg. 24h move</span>
+                    </div>
+
+                    <div className="segment-token-list">
+                      {segment.topCoins.map((coin) => (
+                        <button
+                          key={coin.id}
+                          type="button"
+                          className="segment-token"
+                          onClick={() => setSelectedId(coin.id)}
+                        >
+                          <span>{coin.symbol}</span>
+                          <small className={coin.change >= 0 ? 'positive' : 'negative'}>
+                            {coin.change >= 0 ? '+' : ''}{coin.change.toFixed(2)}%
+                          </small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {marketTab === 'heatmap' && (
+              <section className="panel-card heatmap-panel">
+                <div className="panel-header">
+                  <h3>Trending Heatmap</h3>
+                  <span>Momentum intensity</span>
                 </div>
-              )}
-            </section>
+
+                <div className="heatmap-grid">
+                  {trendingHeatmap.map((coin) => (
+                    <button
+                      key={coin.id}
+                      type="button"
+                      className="heatmap-cell"
+                      style={{
+                        background: `linear-gradient(135deg, rgba(94,196,255,0.18), rgba(14,20,30,0.88))`,
+                        boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.03), 0 0 ${Math.max(coin.intensity, 10)}px rgba(94,196,255,0.12)`,
+                        borderColor: coin.price_change_percentage_24h >= 0 ? 'rgba(54,211,153,0.5)' : 'rgba(255,107,107,0.5)',
+                      }}
+                      onClick={() => setSelectedId(coin.id)}
+                    >
+                      <span className="heatmap-symbol">{coin.symbol.toUpperCase()}</span>
+                      <strong className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                        {coin.price_change_percentage_24h >= 0 ? '+' : ''}{Number(coin.price_change_percentage_24h || 0).toFixed(2)}%
+                      </strong>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {marketTab === 'portfolio' && (
+              <>
+                <section className="portfolio-breakdown-grid">
+                  <div className="panel-card portfolio-block">
+                    <div className="panel-header">
+                      <h3>Portfolio Category Breakdown</h3>
+                      <span>Weighted mix</span>
+                    </div>
+
+                    <div className="allocation-list">
+                      {portfolioCategoryBreakdown.map((item) => (
+                        <div key={item.key} className="allocation-row">
+                          <div className="allocation-header">
+                            <strong>{item.label}</strong>
+                            <span>{item.weight}%</span>
+                          </div>
+                          <div className="allocation-bar">
+                            <span style={{ width: `${item.weight}%`, background: item.color }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="panel-card portfolio-block">
+                    <div className="panel-header">
+                      <h3>Exchange Pulse</h3>
+                      <span>Live desk</span>
+                    </div>
+
+                    <div className="widget-grid">
+                      {advancedWidgets.map((widget) => (
+                        <div key={widget.label} className={`market-widget ${widget.tone}`}>
+                          <span>{widget.label}</span>
+                          <strong>{widget.value}</strong>
+                          <small>{widget.detail}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="portfolio-insights-grid">
+                  <div className="panel-card">
+                    <div className="panel-header">
+                      <h3>Portfolio Strategy</h3>
+                      <span>Alpha view</span>
+                    </div>
+
+                    <div className="portfolio-insight-list">
+                      {strategyCards.map((card) => (
+                        <div key={card.title} className={`insight-pill ${card.tone}`}>
+                          <span>{card.tag}</span>
+                          <strong>{card.title}</strong>
+                          <p>{card.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
           </section>
 
           <section className={`watchlist-section ${selectedNav === 'Watchlist' ? 'section-active' : 'section-hidden'}`}>
@@ -1227,7 +1910,7 @@ function App() {
                   {watchlistCoins.map((coin) => (
                     <div key={coin.id} className="watchlist-item">
                       <div className="coin-meta">
-                        <img src={coin.image} alt={coin.name} />
+                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
                         <div>
                           <strong>{coin.name}</strong>
                           <span>{coin.symbol.toUpperCase()}</span>

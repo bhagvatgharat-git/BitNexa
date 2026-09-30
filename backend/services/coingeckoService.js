@@ -1,6 +1,51 @@
 const axios = require('axios');
 
-const DEFAULT_IDS = ['bitcoin', 'ethereum', 'solana', 'bnb', 'xrp', 'dogecoin', 'cardano', 'polygon'];
+const DEFAULT_IDS = Array.from(new Set([
+  'bitcoin', 'ethereum', 'tether', 'binancecoin', 'solana', 'ripple', 'usd-coin', 'dogecoin',
+  'tron', 'cardano', 'avalanche-2', 'polygon', 'chainlink', 'litecoin', 'staked-ether', 'okb',
+  'monero', 'toncoin', 'cosmos', 'near', 'vechain', 'filecoin', 'internet-computer', 'stellar',
+  'algorand', 'optimism', 'arbitrum', 'kaspa', 'sui', 'aptos', 'injective-protocol', 'mantle',
+  'stacks', 'tezos', 'theta-token', 'neo', 'lisk', 'polkadot', 'uniswap', 'sei-network', 'celestia',
+  'flow', 'pepe', 'render-token', 'dai', 'rocket-pool', 'fetch-ai', 'aave', 'fantom', 'maker',
+  'bitcoin-cash', 'eos', 'true-usd', 'binance-usd', 'wrapped-bitcoin', 'ethena-usd', 'gmx', 'dydx',
+  'magic', 'ethereum-classic', 'cronos', 'helium', 'theta-fuel', 'quant-network', 'bonk', 'gala',
+  'klay-token', 'the-graph', 'zcash', 'pax-dollar', 'elrond-erd-2', 'waves', 'thorchain', 'iota',
+  'nem', '0x', 'basic-attention-token', 'ankr', 'enjincoin', 'status', 'pancakeswap-token',
+  'curve-dao-token', 'compound-governance-token', '1inch', 'bittorrent', 'chiliz', 'flare-networks',
+  'radix', 'decentraland', 'synthetix-network-token', 'pax-gold', 'tronix', 'superfarm', 'ravencoin',
+  'nano', 'digibyte', 'celo', 'holo', 'nimiq', 'zilliqa', 'ontology', 'wanchain', 'bytom',
+  'metis-token', 'loom-network', 'coingecko', 'wrapped-eos', 'bitcoin-sv', 'aioz-network', 'bridge-oracle',
+  'ethena', 'immutable-x', 'blur', 'beam', 'oasis-network', 'space-id', 'baby-doge-coin', 'aptos',
+  'worldcoin-wld', 'jupiter-exchange-solana', 'layerzero', 'pyth-network', 'sats-ordinals',
+  'bittensor', 'solaxy', 'meme', 'book-of-meme', 'manta-network', 'hyperliquid',
+  'eigenlayer', 'safe', 'ondo-finance', 'tether-gold', 'usdc', 'ktx', 'ledger', 'beldex',
+  'skale', 'orbital-bridge', 'neon', 'jito', 'multiversx', 'ens', 'osmosis', 'gitcoin', 'snx',
+  'wrapped-btc', 'coinbase-wrapped-staked-eth', 'moonbeam', 'opbnb', 'ore', 'mana', 'arkham',
+  'celestia', 'hashnote-usyc', 'binance-peg-sol', 'arweave', 'zksync', 'coredao', 'base',
+  'blast', 'berachain', 'fartcoin'
+])).slice(0, 100);
+
+const createCoinAvatarImage = (id, symbol = 'C') => {
+  const safeId = (id || 'coin').toString().trim();
+  const safeSymbol = (symbol || 'C').toString().trim().slice(0, 3).toUpperCase() || 'C';
+  const gradientA = '#1dbf73';
+  const gradientB = '#0f172a';
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <defs>
+        <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="${gradientA}"/>
+          <stop offset="100%" stop-color="${gradientB}"/>
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" rx="20" fill="url(#g)"/>
+      <text x="50" y="58" text-anchor="middle" font-size="42" fill="#ffffff" font-family="Arial, sans-serif" font-weight="700">${safeSymbol.charAt(0) || 'C'}</text>
+      <text x="50" y="86" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-family="Arial, sans-serif">${safeId.slice(0, 6).toUpperCase()}</text>
+    </svg>
+  `;
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+};
 
 const MOCK_COINS = [
   {
@@ -149,21 +194,62 @@ const MOCK_COINS = [
   },
 ];
 
-const parseIds = (ids) => {
-  if (Array.isArray(ids)) {
-    return ids.filter(Boolean);
-  }
+const sanitizeCoinIds = (ids = []) => {
+  const rawIds = Array.isArray(ids) ? ids : typeof ids === 'string' ? ids.split(',') : DEFAULT_IDS;
 
-  if (typeof ids === 'string') {
-    return ids.split(',').map((id) => id.trim()).filter(Boolean);
-  }
-
-  return DEFAULT_IDS;
+  return Array.from(new Set(
+    rawIds
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+      .filter((id) => !id.startsWith('http'))
+  )).slice(0, 100);
 };
+
+const parseIds = (ids) => sanitizeCoinIds(ids);
 
 const getMockMarketData = (ids = DEFAULT_IDS) => {
   const requested = ids.filter(Boolean);
-  return MOCK_COINS.filter((coin) => requested.includes(coin.id));
+  const requestedSet = new Set(requested);
+  const knownCoins = MOCK_COINS.filter((coin) => requestedSet.has(coin.id));
+  const knownIds = new Set(knownCoins.map((coin) => coin.id));
+
+  const syntheticCoins = requested
+    .filter((id) => !knownIds.has(id))
+    .map((id, index) => {
+      const symbol = id
+        .replace(/[-_]/g, ' ')
+        .split(' ')
+        .filter(Boolean)
+        .map((word) => word[0]?.toUpperCase() || '')
+        .join('')
+        .slice(0, 5) || `C${index + 1}`;
+
+      const basePrice = 1 + (index * 0.73);
+      const marketCapBase = 1000000000 * (index + 1) * (1.3 + (index % 5) * 0.25);
+
+      return {
+        id,
+        symbol: symbol.toLowerCase(),
+        name: id
+          .replace(/[-_]/g, ' ')
+          .replace(/\b\w/g, (char) => char.toUpperCase()),
+        image: createCoinAvatarImage(id, symbol),
+        current_price: Number((basePrice * (1 + (index % 7) * 0.11)).toFixed(4)),
+        price_change_percentage_24h: Number(((-8 + ((index * 3.4) % 12))).toFixed(2)),
+        market_cap: Number(marketCapBase.toFixed(2)),
+        total_volume: Number((marketCapBase * 0.17).toFixed(2)),
+        market_cap_rank: index + 9,
+        high_24h: Number((basePrice * 1.12).toFixed(4)),
+        low_24h: Number((basePrice * 0.9).toFixed(4)),
+        circulating_supply: Number((1000000 * (index + 1) * (0.9 + ((index % 8) * 0.12))).toFixed(2)),
+        total_supply: Number((1200000 * (index + 1) * (1.2 + ((index % 6) * 0.15))).toFixed(2)),
+        ath: Number((basePrice * 1.8).toFixed(4)),
+        atl: Number((basePrice * 0.25).toFixed(4)),
+        market_cap_percentage: Number((0.3 + (index % 8) * 0.27).toFixed(2)),
+      };
+    });
+
+  return [...knownCoins, ...syntheticCoins];
 };
 
 const getMockChartData = (id, days) => {
@@ -217,6 +303,7 @@ const buildFallbackTrending = () =>
     id: coin.id,
     symbol: coin.symbol,
     name: coin.name,
+    image: coin.image,
     price: coin.current_price,
     percent_change_24h: coin.price_change_percentage_24h,
     market_cap: coin.market_cap,
@@ -291,14 +378,18 @@ async function getOverview(idsParam) {
 async function getTrending() {
   try {
     const { data } = await axios.get('https://api.coingecko.com/api/v3/search/trending', { timeout: 12000 });
-    return { coins: (data.coins || []).slice(0, 5).map((entry) => ({
-      id: entry.item.id,
-      symbol: entry.item.symbol,
-      name: entry.item.name,
-      price: entry.item.price_btc || 0,
-      percent_change_24h: entry.item.data?.price_change_percentage_24h?.usd || 0,
-      market_cap: entry.item.market_cap_rank || 0,
-    })) };
+    return { coins: (data.coins || []).slice(0, 5).map((entry) => {
+      const item = entry?.item || {};
+      return {
+        id: item.id,
+        symbol: item.symbol,
+        name: item.name,
+        image: item.large || item.thumb || item.small || item.image || null,
+        price: item.price_btc || 0,
+        percent_change_24h: item.data?.price_change_percentage_24h?.usd || 0,
+        market_cap: item.market_cap_rank || 0,
+      };
+    }) };
   } catch (error) {
     console.error('CoinGecko trending fetch failed:', error.message);
     return { coins: buildFallbackTrending() };
