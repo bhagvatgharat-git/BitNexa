@@ -291,7 +291,9 @@ body[data-theme='light'] .mini-stat,
 body[data-theme='light'] .pattern-item,
 body[data-theme='light'] .watchlist-item,
 body[data-theme='light'] .stats-grid div,
-body[data-theme='light'] .order-summary div {
+body[data-theme='light'] .order-summary div,
+body[data-theme='light'] .allocation-row,
+body[data-theme='light'] .alert-item {
   background: rgba(239, 246, 255, 0.9);
 }
 
@@ -824,6 +826,102 @@ body[data-theme='light'] .hero-banner {
   background: rgba(94, 196, 255, 0.12);
   border-color: rgba(94, 196, 255, 0.7);
   color: var(--text);
+}
+
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.allocation-list,
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.allocation-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.allocation-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.allocation-row small,
+.alert-item small {
+  color: var(--muted);
+}
+
+.allocation-bar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  overflow: hidden;
+}
+
+.allocation-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.alert-item.positive {
+  border-color: rgba(54, 211, 153, 0.28);
+}
+
+.alert-item.negative {
+  border-color: rgba(255, 100, 124, 0.28);
+}
+
+.alert-item.neutral {
+  border-color: rgba(251, 191, 36, 0.25);
+}
+
+.alert-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.alert-item.positive .alert-dot {
+  color: var(--success);
+}
+
+.alert-item.negative .alert-dot {
+  color: var(--danger);
+}
+
+.alert-item.neutral .alert-dot {
+  color: var(--warning);
+}
+
+.alert-item strong {
+  display: block;
+  margin-bottom: 4px;
 }
 
 .trading-grid {

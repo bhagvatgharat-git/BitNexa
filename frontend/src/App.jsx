@@ -237,6 +237,23 @@ function App() {
     return { label: 'Pullback Watch', className: 'negative' };
   }, [selectedCoin]);
 
+  const portfolioBreakdown = useMemo(() => {
+    const weights = [
+      { label: 'BTC', weight: 42, value: '$52.7K', color: 'var(--primary)' },
+      { label: 'ETH', weight: 31, value: '$39.1K', color: 'var(--primary-strong)' },
+      { label: 'SOL', weight: 18, value: '$22.6K', color: 'var(--success)' },
+      { label: 'Stable', weight: 9, value: '$11.3K', color: 'var(--warning)' },
+    ];
+
+    return weights;
+  }, []);
+
+  const alertFeed = useMemo(() => [
+    { title: 'BTC breakout', detail: 'Above 20-day trend line with rising volume.', tone: 'positive' },
+    { title: 'ETH watch', detail: 'Range squeeze building near key resistance.', tone: 'neutral' },
+    { title: 'SOL risk', detail: 'Pullback signal needs confirmation before entry.', tone: 'negative' },
+  ], []);
+
   const orderTotal = selectedCoin ? (Number(amount) || 0) * selectedCoin.current_price : 0;
 
   const toggleWatchlist = (coinId) => {
@@ -444,6 +461,49 @@ function App() {
               <span className="insight-label">Risk Meter</span>
               <strong>Moderate</strong>
               <small>Volatility is elevated but still within a healthy range.</small>
+            </div>
+          </section>
+
+          <section className="portfolio-grid">
+            <div className="panel-card">
+              <div className="panel-header">
+                <h3>Portfolio Allocation</h3>
+                <span>Live</span>
+              </div>
+
+              <div className="allocation-list">
+                {portfolioBreakdown.map((item) => (
+                  <div key={item.label} className="allocation-row">
+                    <div className="allocation-header">
+                      <strong>{item.label}</strong>
+                      <span>{item.value}</span>
+                    </div>
+                    <div className="allocation-bar">
+                      <span style={{ width: `${item.weight}%`, background: item.color }} />
+                    </div>
+                    <small>{item.weight}% allocation</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel-card">
+              <div className="panel-header">
+                <h3>Signal Alerts</h3>
+                <span>3 new</span>
+              </div>
+
+              <div className="alert-list">
+                {alertFeed.map((alert) => (
+                  <div key={alert.title} className={`alert-item ${alert.tone}`}>
+                    <div className="alert-dot" />
+                    <div>
+                      <strong>{alert.title}</strong>
+                      <small>{alert.detail}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
 
