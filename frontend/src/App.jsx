@@ -34,11 +34,13 @@ const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 function App() {
   const [coins, setCoins] = useState([]);
   const [selectedId, setSelectedId] = useState('bitcoin');
+  const [tradeCoinId, setTradeCoinId] = useState('bitcoin');
   const [query, setQuery] = useState('');
   const [range, setRange] = useState(7);
   const [sortBy, setSortBy] = useState('market_cap');
   const [quickFilter, setQuickFilter] = useState('all');
   const [selectedNav, setSelectedNav] = useState('Dashboard');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [chartData, setChartData] = useState({ labels: [], datasets: [] });
   const [candleChartData, setCandleChartData] = useState({ labels: [], datasets: [] });
   const [overview, setOverview] = useState(null);
@@ -189,6 +191,19 @@ function App() {
     loadCandles();
   }, [selectedId, range]);
 
+  const searchSuggestions = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return [];
+
+    return coins
+      .filter(
+        (coin) =>
+          coin.name.toLowerCase().includes(term) ||
+          coin.symbol.toLowerCase().includes(term)
+      )
+      .slice(0, 6);
+  }, [coins, query]);
+
   const filteredCoins = useMemo(() => {
     const baseList = coins.filter(
       (coin) =>
@@ -228,7 +243,14 @@ function App() {
   }, [filteredCoins, sortBy]);
 
   const selectedCoin = coins.find((coin) => coin.id === selectedId) || coins[0];
+  const tradeCoin = coins.find((coin) => coin.id === tradeCoinId) || selectedCoin || coins[0];
   const watchlistCoins = coins.filter((coin) => watchlist.includes(coin.id));
+
+  useEffect(() => {
+    if (selectedCoin && selectedCoin.id !== tradeCoinId) {
+      setTradeCoinId(selectedCoin.id);
+    }
+  }, [selectedCoin, tradeCoinId]);
   const topMovers = useMemo(
     () =>
       [...coins]
@@ -304,7 +326,7 @@ function App() {
     { title: 'Layer-1 rotation', detail: 'Large-cap chains outperform as volume broadens beyond the majors.', time: '1 hr ago' },
   ], []);
 
-  const orderTotal = selectedCoin ? (Number(amount) || 0) * selectedCoin.current_price : 0;
+  const orderTotal = tradeCoin ? (Number(amount) || 0) * tradeCoin.current_price : 0;
 
   const toggleWatchlist = (coinId) => {
     setWatchlist((current) =>
@@ -367,15 +389,50 @@ function App() {
             </div>
 
             <div className="topbar-actions">
-              <label className="search-box" aria-label="Search crypto">
-                <span>🔎</span>
-                <input
-                  type="text"
-                  placeholder="Search cryptocurrency..."
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-              </label>
+              <div className="search-wrapper">
+                <label className="search-box" aria-label="Search crypto">
+                  <span>🔎</span>
+                  <input
+                    type="text"
+                    placeholder="Search cryptocurrency..."
+                    value={query}
+                    onFocus={() => setSearchOpen(true)}
+                    onBlur={() => setTimeout(() => setSearchOpen(false), 120)}
+                    onChange={(event) => {
+                      setQuery(event.target.value);
+                      setSearchOpen(true);
+                    }}
+                  />
+                </label>
+
+                {searchOpen && query.trim() && searchSuggestions.length > 0 && (
+                  <div className="search-suggestions">
+                    {searchSuggestions.map((coin) => (
+                      <button
+                        key={coin.id}
+                        type="button"
+                        className="search-suggestion"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          setSelectedId(coin.id);
+                          setTradeCoinId(coin.id);
+                          setQuery('');
+                          setSearchOpen(false);
+                        }}
+                      >
+                        <div className="coin-meta">
+                          <img src={coin.image} alt={coin.name} />
+                          <div>
+                            <strong>{coin.name}</strong>
+                            <span>{coin.symbol.toUpperCase()}</span>
+                          </div>
+                        </div>
+                        <span className="suggestion-price">{formatCurrency(coin.current_price)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <button type="button" className="theme-toggle" onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
                 {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
@@ -1160,17 +1217,21 @@ function App() {
             </div>
 
             <div className="modal-body">
-              <div className="summary-line">
+              <label className="modal-field">
                 <span>Coin</span>
-                <strong>{selectedCoin?.name}</strong>
-              </div>
+                <select value={tradeCoinId} onChange={(event) => setTradeCoinId(event.target.value)}>
+                  {coins.map((coin) => (
+                    <option key={coin.id} value={coin.id}>{coin.name} ({coin.symbol.toUpperCase()})</option>
+                  ))}
+                </select>
+              </label>
               <div className="summary-line">
                 <span>Order type</span>
                 <strong>{orderType}</strong>
               </div>
               <div className="summary-line">
                 <span>Amount</span>
-                <strong>{amount} {selectedCoin?.symbol?.toUpperCase()}</strong>
+                <strong>{amount} {tradeCoin?.symbol?.toUpperCase()}</strong>
               </div>
               <div className="summary-line highlight">
                 <span>Total</span>
@@ -1188,7 +1249,7 @@ function App() {
                   setToast({
                     id: Date.now(),
                     type: orderSide === 'buy' ? 'success' : 'info',
-                    text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order placed for ${selectedCoin?.symbol?.toUpperCase()}`,
+                    text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order placed for ${tradeCoin?.symbol?.toUpperCase()}`,
                   });
                 }}
               >
