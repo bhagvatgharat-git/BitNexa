@@ -51,6 +51,8 @@ function App() {
   const [orderType, setOrderType] = useState('market');
   const [amount, setAmount] = useState('0.5');
   const [theme, setTheme] = useState('dark');
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [trending, setTrending] = useState([]);
   const [toasts, setToasts] = useState([
     { id: 1, type: 'success', text: 'Market feed connected successfully.' },
   ]);
@@ -112,14 +114,31 @@ function App() {
       }
     };
 
-    loadMarket();
-    loadOverview();
+    const loadTrending = async () => {
+      try {
+        const data = await marketApi.getTrending();
+        setTrending(data.coins || []);
+      } catch (err) {
+        console.error('Trending feed error:', err);
+      }
+    };
+
+    const refreshDashboard = async () => {
+      await Promise.all([loadMarket(), loadOverview(), loadTrending()]);
+    };
+
+    refreshDashboard();
+
+    if (!autoRefresh) {
+      return undefined;
+    }
+
     const interval = setInterval(() => {
-      loadMarket();
-      loadOverview();
-    }, 60000);
+      refreshDashboard();
+    }, 30000);
+
     return () => clearInterval(interval);
-  }, []);
+  }, [autoRefresh, selectedId]);
 
   useEffect(() => {
     const loadChart = async () => {
@@ -230,6 +249,34 @@ function App() {
   const selectedCoin = coins.find((coin) => coin.id === selectedId) || coins[0];
   const tradeCoin = coins.find((coin) => coin.id === tradeCoinId) || selectedCoin || coins[0];
   const watchlistCoins = coins.filter((coin) => watchlist.includes(coin.id));
+
+  const gainers = useMemo(
+    () => [...coins].filter((coin) => coin.price_change_percentage_24h >= 0).sort((a, b) => b.price_change_percentage_24h - a.price_change_percentage_24h).slice(0, 4),
+    [coins]
+  );
+
+  const losers = useMemo(
+    () => [...coins].filter((coin) => coin.price_change_percentage_24h < 0).sort((a, b) => a.price_change_percentage_24h - b.price_change_percentage_24h).slice(0, 4),
+    [coins]
+  );
+
+  const marketCapLeaders = useMemo(
+    () => [...coins].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)).slice(0, 5),
+    [coins]
+  );
+
+  const globalStats = useMemo(() => {
+    const totalMarketCap = coins.reduce((sum, coin) => sum + (coin.market_cap || 0), 0);
+    const totalVolume = coins.reduce((sum, coin) => sum + (coin.total_volume || 0), 0);
+    const avgMove = coins.reduce((sum, coin) => sum + (Number(coin.price_change_percentage_24h) || 0), 0) / (coins.length || 1);
+
+    return {
+      totalMarketCap,
+      totalVolume,
+      avgMove,
+      btcDominance: overview?.dominance || coins.find((coin) => coin.id === 'bitcoin')?.market_cap_percentage || 0,
+    };
+  }, [coins, overview]);
 
   useEffect(() => {
     if (selectedCoin && selectedCoin.id !== tradeCoinId) {
@@ -419,6 +466,14 @@ function App() {
                 )}
               </div>
 
+              <button
+                type="button"
+                className={`status-pill ${autoRefresh ? 'live' : 'paused'}`}
+                onClick={() => setAutoRefresh((current) => !current)}
+              >
+                <span className="status-indicator" aria-hidden="true" />
+                <span>{autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}</span>
+              </button>
               <button type="button" className="theme-toggle" onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
                 {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
               </button>
@@ -518,6 +573,100 @@ function App() {
               <div className="metric-card accent">
                 <span className="metric-label">Market Signal</span>
                 <strong>{overview ? overview.signal : 'Positive'}</strong>
+              </div>
+            </section>
+
+            <section className="live-market-grid">
+              <div className="panel-card">
+                <div className="panel-header">
+                  <h3>Trending Coins</h3>
+                  <span>Live</span>
+                </div>
+
+                <div className="rank-list">
+                  {(trending.length ? trending : coins.slice(0, 4)).map((coin, index) => (
+                    <div key={coin.id || index} className="mini-rank-item">
+                      <div className="coin-meta">
+                        <span className="market-rank">#{index + 1}</span>
+                        <img src={coin.image || selectedCoin?.image} alt={coin.name || 'coin'} />
+                        <div>
+                          <strong>{coin.name || coin.symbol?.toUpperCase() || 'BTC'}</strong>
+                          <span>{(coin.symbol || '').toUpperCase() || 'BTC'}</span>
+                        </div>
+                      </div>
+                      <span className={coin.percent_change_24h >= 0 || coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                        {formatPercent(coin.percent_change_24h ?? coin.price_change_percentage_24h ?? 0)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="panel-card">
+                <div className="panel-header">
+                  <h3>Top Gainers</h3>
+                  <span>24h</span>
+                </div>
+
+                <div className="rank-list">
+                  {gainers.map((coin) => (
+                    <div key={coin.id} className="mini-rank-item">
+                      <div className="coin-meta">
+                        <img src={coin.image} alt={coin.name} />
+                        <div>
+                          <strong>{coin.name}</strong>
+                          <span>{coin.symbol.toUpperCase()}</span>
+                        </div>
+                      </div>
+                      <span className="positive">{formatPercent(coin.price_change_percentage_24h)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="panel-card">
+                <div className="panel-header">
+                  <h3>Top Losers</h3>
+                  <span>24h</span>
+                </div>
+
+                <div className="rank-list">
+                  {losers.map((coin) => (
+                    <div key={coin.id} className="mini-rank-item">
+                      <div className="coin-meta">
+                        <img src={coin.image} alt={coin.name} />
+                        <div>
+                          <strong>{coin.name}</strong>
+                          <span>{coin.symbol.toUpperCase()}</span>
+                        </div>
+                      </div>
+                      <span className="negative">{formatPercent(coin.price_change_percentage_24h)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="panel-card">
+                <div className="panel-header">
+                  <h3>Market Cap Ranking</h3>
+                  <span>Top 5</span>
+                </div>
+
+                <div className="rank-list">
+                  {marketCapLeaders.map((coin, index) => (
+                    <div key={coin.id} className="mini-rank-item">
+                      <div className="coin-meta">
+                        <span className="market-rank">#{index + 1}</span>
+                        <img src={coin.image} alt={coin.name} />
+                        <div>
+                          <strong>{coin.name}</strong>
+                          <span>{coin.symbol.toUpperCase()}</span>
+                        </div>
+                      </div>
+                      <strong>{formatCompact(coin.market_cap)}</strong>
+                    </div>
+                  ))}
+                </div>
               </div>
             </section>
 
