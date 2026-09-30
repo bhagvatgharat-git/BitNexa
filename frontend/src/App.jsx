@@ -36,6 +36,8 @@ function App() {
   const [selectedId, setSelectedId] = useState('bitcoin');
   const [query, setQuery] = useState('');
   const [range, setRange] = useState(7);
+  const [quickFilter, setQuickFilter] = useState('all');
+  const [selectedNav, setSelectedNav] = useState('Dashboard');
   const [chartData, setChartData] = useState({ labels: [], datasets: [] });
   const [candleChartData, setCandleChartData] = useState({ labels: [], datasets: [] });
   const [overview, setOverview] = useState(null);
@@ -186,14 +188,27 @@ function App() {
     loadCandles();
   }, [selectedId, range]);
 
-  const filteredCoins = useMemo(
-    () =>
-      coins.filter((coin) =>
+  const filteredCoins = useMemo(() => {
+    const baseList = coins.filter(
+      (coin) =>
         coin.name.toLowerCase().includes(query.toLowerCase()) ||
         coin.symbol.toLowerCase().includes(query.toLowerCase())
-      ),
-    [coins, query]
-  );
+    );
+
+    if (quickFilter === 'gainers') {
+      return baseList.filter((coin) => coin.price_change_percentage_24h >= 0);
+    }
+
+    if (quickFilter === 'losers') {
+      return baseList.filter((coin) => coin.price_change_percentage_24h < 0);
+    }
+
+    if (quickFilter === 'watchlist') {
+      return baseList.filter((coin) => watchlist.includes(coin.id));
+    }
+
+    return baseList;
+  }, [coins, query, quickFilter, watchlist]);
 
   const selectedCoin = coins.find((coin) => coin.id === selectedId) || coins[0];
   const watchlistCoins = coins.filter((coin) => watchlist.includes(coin.id));
@@ -233,6 +248,13 @@ function App() {
   };
 
   const navItems = ['Dashboard', 'Markets', 'Watchlist', 'Portfolio', 'Alerts'];
+  const navTitles = {
+    Dashboard: 'Market Overview',
+    Markets: 'Live Markets',
+    Watchlist: 'Watchlist',
+    Portfolio: 'Portfolio Health',
+    Alerts: 'Signal Alerts',
+  };
 
   return (
     <div className="app-shell">
@@ -248,7 +270,12 @@ function App() {
 
           <nav className="sidebar-nav">
             {navItems.map((item, index) => (
-              <button key={item} type="button" className={`nav-item ${index === 0 ? 'active' : ''}`}>
+              <button
+                key={item}
+                type="button"
+                className={`nav-item ${selectedNav === item ? 'active' : ''}`}
+                onClick={() => setSelectedNav(item)}
+              >
                 <span>{index === 0 ? '◈' : index === 1 ? '◎' : index === 2 ? '★' : index === 3 ? '▣' : '⚑'}</span>
                 {item}
               </button>
@@ -268,7 +295,7 @@ function App() {
               <button type="button" className="icon-button" aria-label="Toggle menu">☰</button>
               <div>
                 <p className="topbar-kicker">Welcome back</p>
-                <h2>Market Overview</h2>
+                <h2>{navTitles[selectedNav] || 'Market Overview'}</h2>
               </div>
             </div>
 
@@ -450,8 +477,23 @@ function App() {
           <section className="market-grid">
             <div className="coin-list-panel">
               <div className="panel-header">
-                <h3>Market Overview</h3>
-                <span>{filteredCoins.length} coins</span>
+                <div>
+                  <h3>Market Overview</h3>
+                  <span>{filteredCoins.length} coins</span>
+                </div>
+
+                <div className="mini-toggle-group" aria-label="Market filter shortcuts">
+                  {['all', 'gainers', 'losers', 'watchlist'].map((filter) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      className={quickFilter === filter ? 'active' : ''}
+                      onClick={() => setQuickFilter(filter)}
+                    >
+                      {filter === 'all' ? 'All' : filter === 'gainers' ? 'Gainers' : filter === 'losers' ? 'Losers' : 'Watchlist'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {loading ? (

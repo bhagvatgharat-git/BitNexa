@@ -23,20 +23,20 @@
 }
 
 body[data-theme='light'] {
-  --bg: #eef5ff;
-  --bg-alt: #f9fbff;
-  --panel: rgba(255, 255, 255, 0.9);
-  --panel-soft: rgba(244, 249, 255, 0.96);
-  --card: rgba(14, 26, 39, 0.02);
-  --border: rgba(117, 138, 175, 0.18);
-  --primary: #1a73ff;
-  --primary-strong: #5e6cf2;
-  --success: #10b981;
-  --danger: #ef4858;
-  --warning: #f59e0b;
-  --text: #122033;
-  --muted: #58708d;
-  --shadow: 0 18px 36px rgba(16, 33, 53, 0.12);
+  --bg: #edf4ff;
+  --bg-alt: #f8fbff;
+  --panel: rgba(255, 255, 255, 0.96);
+  --panel-soft: rgba(246, 250, 255, 0.96);
+  --card: rgba(232, 241, 255, 0.9);
+  --border: rgba(93, 118, 160, 0.18);
+  --primary: #2563eb;
+  --primary-strong: #5b4bf1;
+  --success: #0ea676;
+  --danger: #e11d48;
+  --warning: #d97706;
+  --text: #102236;
+  --muted: #586f8b;
+  --shadow: 0 18px 38px rgba(31, 54, 84, 0.12), 0 6px 16px rgba(79, 112, 164, 0.08);
 }
 
 * {
@@ -56,10 +56,12 @@ body {
     radial-gradient(circle at bottom right, rgba(124, 141, 255, 0.12), transparent 22%),
     linear-gradient(160deg, var(--bg) 0%, var(--bg-alt) 100%);
   color: var(--text);
+  transition: background 0.35s ease, color 0.3s ease;
 }
 
 button, input, select {
   font: inherit;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
 img {
@@ -69,17 +71,54 @@ img {
 
 button {
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 button:hover {
   transform: translateY(-1px);
 }
 
+@keyframes floatIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(37, 99, 235, 0.1);
+  }
+  50% {
+    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.12);
+  }
+}
+
 .app-shell {
   max-width: 1500px;
   margin: 0 auto;
   padding: 24px;
+  animation: floatIn 0.5s ease;
+}
+
+.topbar,
+.hero-banner,
+.metric-card,
+.panel-card,
+.coin-list-panel,
+.details-panel,
+.watchlist-panel,
+.table-panel,
+.coin-card,
+.toast {
+  animation: floatIn 0.45s ease both;
+}
+
+.hero-banner {
+  animation: floatIn 0.6s ease both, glowPulse 7s ease-in-out infinite;
 }
 
 .dashboard-shell {
@@ -146,14 +185,16 @@ button:hover {
   background: transparent;
   color: var(--muted);
   text-align: left;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .nav-item.active,
 .nav-item:hover {
-  background: rgba(94, 196, 255, 0.08);
-  border-color: rgba(94, 196, 255, 0.24);
+  background: rgba(94, 196, 255, 0.1);
+  border-color: rgba(94, 196, 255, 0.28);
   color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(94, 196, 255, 0.12);
 }
 
 .sidebar-card {
@@ -201,6 +242,7 @@ button:hover {
   box-shadow: var(--shadow);
   position: relative;
   overflow: hidden;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .topbar::before,
@@ -215,7 +257,59 @@ button:hover {
 }
 
 body[data-theme='light'] .topbar {
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(99, 129, 180, 0.2);
+}
+
+body[data-theme='light'] .nav-item {
+  color: var(--muted);
+}
+
+body[data-theme='light'] .nav-item.active,
+body[data-theme='light'] .nav-item:hover {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.18);
+  color: var(--text);
+}
+
+body[data-theme='light'] .hero-banner,
+body[data-theme='light'] .metric-card,
+body[data-theme='light'] .panel-card,
+body[data-theme='light'] .coin-list-panel,
+body[data-theme='light'] .details-panel,
+body[data-theme='light'] .watchlist-panel,
+body[data-theme='light'] .table-panel {
+  background: var(--panel);
+  border-color: rgba(99, 129, 180, 0.18);
+}
+
+body[data-theme='light'] .summary-line,
+body[data-theme='light'] .mover-item,
+body[data-theme='light'] .trend-item,
+body[data-theme='light'] .pulse-row,
+body[data-theme='light'] .mini-stat,
+body[data-theme='light'] .pattern-item,
+body[data-theme='light'] .watchlist-item,
+body[data-theme='light'] .stats-grid div,
+body[data-theme='light'] .order-summary div {
+  background: rgba(239, 246, 255, 0.9);
+}
+
+body[data-theme='light'] .coin-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(237, 244, 255, 0.9));
+}
+
+body[data-theme='light'] .primary-btn {
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
+}
+
+body[data-theme='light'] .ghost-btn,
+body[data-theme='light'] .theme-toggle,
+body[data-theme='light'] .icon-button,
+body[data-theme='light'] .watch-btn,
+body[data-theme='light'] .clear-btn,
+body[data-theme='light'] .close-btn {
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .topbar-left {
@@ -479,6 +573,7 @@ body[data-theme='light'] .hero-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
   color: var(--text);
 }
@@ -491,6 +586,32 @@ body[data-theme='light'] .hero-banner {
 .panel-header span {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.mini-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mini-toggle-group button {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mini-toggle-group button.active {
+  background: linear-gradient(135deg, rgba(94, 196, 255, 0.16), rgba(124, 141, 255, 0.12));
+  border-color: rgba(94, 196, 255, 0.5);
+  color: var(--text);
 }
 
 .mover-list,
