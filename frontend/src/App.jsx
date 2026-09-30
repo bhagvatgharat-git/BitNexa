@@ -254,6 +254,39 @@ function App() {
     { title: 'SOL risk', detail: 'Pullback signal needs confirmation before entry.', tone: 'negative' },
   ], []);
 
+  const quickActions = useMemo(() => [
+    { label: 'Rebalance', value: 'Portfolio rebalanced successfully.' },
+    { label: 'Set Alert', value: 'Alert created for the selected market.' },
+    { label: 'Export', value: 'Trade report exported.' },
+  ], []);
+
+  const portfolioPerformance = useMemo(() => ({
+    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'],
+    datasets: [
+      {
+        label: 'Portfolio',
+        data: [52, 58, 64, 61, 73, 81, 89],
+        borderColor: '#5ec4ff',
+        backgroundColor: 'rgba(94, 196, 255, 0.18)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+      },
+    ],
+  }), []);
+
+  const strategyCards = useMemo(() => [
+    { tag: 'Momentum', title: 'Trend Follow', description: 'Stay long while BTC remains above short-term trend support.', signal: 'Bullish', tone: 'positive' },
+    { tag: 'Protection', title: 'Risk Fence', description: 'Scale partial exits when volatility expands beyond the latest band.', signal: 'Balanced', tone: 'neutral' },
+    { tag: 'Rebalance', title: 'Portfolio Tilt', description: 'Rotate a portion into ETH and SOL during strong market breadth.', signal: 'Active', tone: 'positive' },
+  ], []);
+
+  const marketNews = useMemo(() => [
+    { title: 'ETF inflows continue', detail: 'Digital asset flows remain positive as spot demand holds firm.', time: '12 min ago' },
+    { title: 'Macro risk softens', detail: 'Treasury yields ease, supporting risk appetite across crypto pairs.', time: '31 min ago' },
+    { title: 'Layer-1 rotation', detail: 'Large-cap chains outperform as volume broadens beyond the majors.', time: '1 hr ago' },
+  ], []);
+
   const orderTotal = selectedCoin ? (Number(amount) || 0) * selectedCoin.current_price : 0;
 
   const toggleWatchlist = (coinId) => {
@@ -350,6 +383,19 @@ function App() {
               <div className="hero-actions">
                 <button type="button" className="primary-btn" onClick={() => setShowTradeModal(true)}>Explore Markets</button>
                 <button type="button" className="ghost-btn" onClick={() => setToast({ id: Date.now(), type: 'success', text: 'Portfolio view opened.' })}>View Portfolio</button>
+              </div>
+
+              <div className="quick-action-strip">
+                {quickActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="quick-action"
+                    onClick={() => setToast({ id: Date.now(), type: 'info', text: action.value })}
+                  >
+                    {action.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -504,6 +550,92 @@ function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          </section>
+
+          <section className="terminal-grid">
+            <div className="panel-card performance-panel">
+              <div className="panel-header">
+                <h3>Portfolio Performance</h3>
+                <span>YTD</span>
+              </div>
+
+              <div className="mini-chart">
+                <Line
+                  data={portfolioPerformance}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                    scales: {
+                      x: { display: false },
+                      y: { display: false },
+                    },
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="panel-card risk-panel">
+              <div className="panel-header">
+                <h3>Risk Meter</h3>
+                <span>Balanced</span>
+              </div>
+
+              <div className="risk-layout">
+                <div className="risk-ring">
+                  <span>62%</span>
+                </div>
+
+                <div className="risk-breakdown">
+                  <div>
+                    <span>Volatility</span>
+                    <strong>Moderate</strong>
+                  </div>
+                  <div>
+                    <span>Drawdown</span>
+                    <strong>8.4%</strong>
+                  </div>
+                  <div>
+                    <span>Sharpe</span>
+                    <strong>1.72</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="strategy-grid">
+            {strategyCards.map((card) => (
+              <div key={card.title} className={`panel-card strategy-card ${card.tone}`}>
+                <span className="eyebrow strategy-tag">{card.tag}</span>
+                <h3>{card.title}</h3>
+                <p>{card.description}</p>
+                <div className="strategy-footer">
+                  <span>{card.signal}</span>
+                  <button type="button" className="tiny-btn">Apply</button>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section className="news-panel panel-card">
+            <div className="panel-header">
+              <h3>Market Brief</h3>
+              <span>Updated</span>
+            </div>
+
+            <div className="news-list">
+              {marketNews.map((item) => (
+                <div key={item.title} className="news-item">
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.detail}</p>
+                  </div>
+                  <span>{item.time}</span>
+                </div>
+              ))}
             </div>
           </section>
 

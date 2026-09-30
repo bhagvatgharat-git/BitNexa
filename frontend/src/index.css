@@ -299,8 +299,16 @@ body[data-theme='light'] .watchlist-item,
 body[data-theme='light'] .stats-grid div,
 body[data-theme='light'] .order-summary div,
 body[data-theme='light'] .allocation-row,
-body[data-theme='light'] .alert-item {
+body[data-theme='light'] .alert-item,
+body[data-theme='light'] .risk-breakdown > div,
+body[data-theme='light'] .news-item,
+body[data-theme='light'] .strategy-card {
   background: rgba(239, 246, 255, 0.9);
+}
+
+body[data-theme='light'] .tiny-btn {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
 }
 
 body[data-theme='light'] .coin-card {
@@ -473,6 +481,25 @@ body[data-theme='light'] .hero-banner {
   gap: 12px;
   margin-top: 22px;
   flex-wrap: wrap;
+}
+
+.quick-action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.quick-action {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .hero-panel {
@@ -853,8 +880,21 @@ body[data-theme='light'] .hero-banner {
   gap: 20px;
 }
 
+.terminal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 20px;
+}
+
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
 .allocation-list,
-.alert-list {
+.alert-list,
+.news-list {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -941,6 +981,140 @@ body[data-theme='light'] .hero-banner {
 .alert-item strong {
   display: block;
   margin-bottom: 4px;
+}
+
+.mini-chart {
+  height: 180px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+}
+
+.risk-layout {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.risk-ring {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--success) 0 62%, rgba(148, 163, 184, 0.18) 62% 100%);
+  position: relative;
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.08);
+}
+
+.risk-ring::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  background: var(--panel);
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.risk-ring span {
+  position: relative;
+  z-index: 1;
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+
+.risk-breakdown {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.risk-breakdown > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.risk-breakdown span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.strategy-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.strategy-card h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.strategy-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.strategy-tag {
+  display: inline-flex;
+  width: fit-content;
+}
+
+.strategy-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.strategy-footer span {
+  font-weight: 700;
+}
+
+.tiny-btn {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.news-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.news-item strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.news-item p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.news-item span {
+  color: var(--muted);
+  white-space: nowrap;
+  font-size: 0.75rem;
 }
 
 .trading-grid {
