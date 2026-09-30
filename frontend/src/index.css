@@ -325,9 +325,11 @@ body[data-theme='light'] .panel-card,
 body[data-theme='light'] .coin-list-panel,
 body[data-theme='light'] .details-panel,
 body[data-theme='light'] .watchlist-panel,
-body[data-theme='light'] .table-panel {
-  background: var(--panel);
-  border-color: rgba(99, 129, 180, 0.18);
+body[data-theme='light'] .table-panel,
+body[data-theme='light'] .sidebar,
+body[data-theme='light'] .topbar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(242,247,255,0.96));
+  border-color: rgba(99, 129, 180, 0.2);
 }
 
 body[data-theme='light'] .search-box,
@@ -349,8 +351,10 @@ body[data-theme='light'] .watchlist-item,
 body[data-theme='light'] .stats-grid div,
 body[data-theme='light'] .allocation-row,
 body[data-theme='light'] .risk-breakdown > div,
-body[data-theme='light'] .strategy-card {
-  background: rgba(255, 255, 255, 0.94);
+body[data-theme='light'] .strategy-card,
+body[data-theme='light'] .summary-line,
+body[data-theme='light'] .coin-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(242,247,255,0.94));
   border-color: rgba(99, 129, 180, 0.18);
 }
 
@@ -425,8 +429,20 @@ body[data-theme='light'] .mini-toggle-group button {
   color: var(--muted);
 }
 
+body[data-theme='light'] .mini-toggle-group button:active {
+  background: rgba(37, 99, 235, 0.1);
+}
+
 body[data-theme='light'] .mini-toggle-group button.active {
   color: #edf6ff;
+}
+
+body[data-theme='light'] .sort-wrap {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+body[data-theme='light'] .sort-wrap select {
+  background-color: rgba(244, 248, 255, 0.96);
 }
 
 .topbar-left {
@@ -776,18 +792,32 @@ body[data-theme='light'] .hero-banner {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px;
 }
 
 .mini-toggle-group button {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--muted);
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.mini-toggle-group button:hover {
+  background: rgba(94, 196, 255, 0.08);
+  border-color: rgba(94, 196, 255, 0.14);
+}
+
+.mini-toggle-group button:active {
+  background: rgba(94, 196, 255, 0.12);
+  transform: translateY(0);
 }
 
 .mini-toggle-group button.active {
@@ -795,6 +825,45 @@ body[data-theme='light'] .hero-banner {
   border-color: rgba(37, 99, 235, 0.7);
   color: #edf6ff;
   box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
+}
+
+.sort-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+}
+
+.sort-wrap label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sort-wrap select {
+  appearance: none;
+  background: rgba(15, 23, 42, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 32px 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
+.sort-wrap select:focus {
+  outline: 2px solid rgba(94, 196, 255, 0.8);
+  outline-offset: 2px;
 }
 
 .mover-list,

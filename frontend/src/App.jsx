@@ -11,6 +11,7 @@ import {
   Filler,
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
+import marketApi from './services/marketApi';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
 
@@ -88,13 +89,7 @@ function App() {
     const loadMarket = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:5000/api/market?ids=${DEFAULT_IDS.join(',')}`);
-
-        if (!response.ok) {
-          throw new Error('Unable to fetch market data.');
-        }
-
-        const data = await response.json();
+        const data = await marketApi.getMarket(DEFAULT_IDS);
         setCoins(data);
         setError('');
 
@@ -110,11 +105,8 @@ function App() {
 
     const loadOverview = async () => {
       try {
-        const response = await fetch(`http://localhost:5000/api/overview?ids=${DEFAULT_IDS.join(',')}`);
-        if (response.ok) {
-          const data = await response.json();
-          setOverview(data);
-        }
+        const data = await marketApi.getOverview(DEFAULT_IDS);
+        setOverview(data);
       } catch (err) {
         console.error('Overview fetch error:', err);
       }
@@ -134,10 +126,7 @@ function App() {
       if (!selectedId) return;
 
       try {
-        const response = await fetch(`http://localhost:5000/api/chart/${selectedId}?days=${range}`);
-        if (!response.ok) throw new Error('Unable to fetch chart data.');
-
-        const data = await response.json();
+        const data = await marketApi.getChart(selectedId, range);
         setChartData({
           labels: data.labels,
           datasets: [
@@ -161,10 +150,7 @@ function App() {
       if (!selectedId) return;
 
       try {
-        const response = await fetch(`http://localhost:5000/api/ohlc/${selectedId}?days=${range}`);
-        if (!response.ok) throw new Error('Unable to fetch candle data.');
-
-        const data = await response.json();
+        const data = await marketApi.getOhlc(selectedId, range);
         const candles = data.candles || [];
 
         setCandleChartData({
