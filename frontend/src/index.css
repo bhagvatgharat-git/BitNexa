@@ -235,6 +235,18 @@ button:focus-visible {
   gap: 22px;
 }
 
+.dashboard-section,
+.markets-section,
+.watchlist-section,
+.portfolio-section,
+.alerts-section {
+  display: none;
+}
+
+.section-active {
+  display: block;
+}
+
 .topbar {
   display: flex;
   align-items: center;
