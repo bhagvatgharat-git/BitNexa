@@ -225,6 +225,64 @@ app.get('/api/portfolio', authenticate, (req, res) => {
   return res.json(portfolios.get(req.user.id) || { positions: [], totalValue: 0 });
 });
 
+app.get('/api/portfolio/summary', authenticate, async (req, res) => {
+  try {
+    ensureUserState(req.user.id);
+    const userPortfolio = portfolios.get(req.user.id) || { positions: [], totalValue: 0 };
+    const positions = Array.isArray(userPortfolio.positions) ? userPortfolio.positions : [];
+
+    if (!positions.length) {
+      return res.json({
+        totalValue: 0,
+        totalInvested: 0,
+        change: 0,
+        changePercent: 0,
+        positions: [],
+      });
+    }
+
+    const ids = [...new Set(positions.map((position) => String(position.coinId || '').trim()).filter(Boolean))];
+    const marketData = ids.length ? await getMarketData(ids) : [];
+    const marketMap = new Map((marketData || []).map((coin) => [String(coin.id), coin]));
+
+    const mappedPositions = positions.map((position) => {
+      const amount = Number(position.amount || 0);
+      const averagePrice = Number(position.averagePrice || 0);
+      const marketCoin = marketMap.get(String(position.coinId));
+      const currentPrice = Number(marketCoin?.current_price ?? averagePrice ?? 0);
+      const invested = amount * averagePrice;
+      const marketValue = amount * currentPrice;
+      const pnl = marketValue - invested;
+
+      return {
+        ...position,
+        amount,
+        averagePrice,
+        currentPrice,
+        invested,
+        marketValue,
+        pnl,
+        changePercent: invested ? (pnl / invested) * 100 : 0,
+      };
+    });
+
+    const totalInvested = mappedPositions.reduce((sum, position) => sum + position.invested, 0);
+    const totalValue = mappedPositions.reduce((sum, position) => sum + position.marketValue, 0);
+    const change = totalValue - totalInvested;
+
+    return res.json({
+      totalValue,
+      totalInvested,
+      change,
+      changePercent: totalInvested ? (change / totalInvested) * 100 : 0,
+      positions: mappedPositions,
+    });
+  } catch (error) {
+    console.error('Portfolio summary failed:', error.message);
+    return res.status(500).json({ error: 'Unable to calculate portfolio summary.' });
+  }
+});
+
 app.post('/api/portfolio', authenticate, (req, res) => {
   const { coinId, symbol, amount, averagePrice, allocation } = req.body || {};
 

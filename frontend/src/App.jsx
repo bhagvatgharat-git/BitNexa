@@ -147,6 +147,7 @@ function App() {
   const [authForm, setAuthForm] = useState({ name: '', email: 'demo@example.com', password: 'Password123!' });
   const [authError, setAuthError] = useState('');
   const [portfolio, setPortfolio] = useState({ positions: [], totalValue: 0 });
+  const [portfolioSummary, setPortfolioSummary] = useState({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
   const [alerts, setAlerts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [newAlert, setNewAlert] = useState({ coinId: 'bitcoin', targetPrice: '', direction: 'above' });
@@ -816,9 +817,10 @@ function App() {
 
     const loadUserData = async () => {
       try {
-        const [watchlistResponse, portfolioResponse, alertsResponse, transactionsResponse] = await Promise.all([
+        const [watchlistResponse, portfolioResponse, portfolioSummaryResponse, alertsResponse, transactionsResponse] = await Promise.all([
           marketApi.getWatchlist(token),
           marketApi.getPortfolio(token),
+          marketApi.getPortfolioSummary(token),
           marketApi.getAlerts(token),
           marketApi.getTransactions(token),
         ]);
@@ -831,6 +833,16 @@ function App() {
           setPortfolio({
             positions: Array.isArray(portfolioResponse.positions) ? portfolioResponse.positions : [],
             totalValue: Number(portfolioResponse.totalValue || 0),
+          });
+        }
+
+        if (portfolioSummaryResponse && typeof portfolioSummaryResponse === 'object') {
+          setPortfolioSummary({
+            totalValue: Number(portfolioSummaryResponse.totalValue || 0),
+            totalInvested: Number(portfolioSummaryResponse.totalInvested || 0),
+            change: Number(portfolioSummaryResponse.change || 0),
+            changePercent: Number(portfolioSummaryResponse.changePercent || 0),
+            positions: Array.isArray(portfolioSummaryResponse.positions) ? portfolioSummaryResponse.positions : [],
           });
         }
 
@@ -891,6 +903,7 @@ function App() {
     setUser(null);
     setToken('');
     setPortfolio({ positions: [], totalValue: 0 });
+    setPortfolioSummary({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
     setAlerts([]);
     setToast({ id: Date.now(), type: 'info', text: 'You have been logged out.' });
   };
@@ -1175,17 +1188,17 @@ function App() {
               <div className="hero-panel">
                 <div className="mini-stat">
                   <span>Portfolio Value</span>
-                  <strong>{formatCompact((selectedCoin?.current_price || 0) * 4200)}</strong>
+                  <strong>{formatCurrency(portfolioSummary.totalValue || 0)}</strong>
                 </div>
                 <div className="mini-stat accent">
-                  <span>24h Trend</span>
-                  <strong className={selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                    {selectedCoin ? formatPercent(selectedCoin.price_change_percentage_24h) : '+0.00%'}
+                  <span>P/L</span>
+                  <strong className={portfolioSummary.change >= 0 ? 'positive' : 'negative'}>
+                    {portfolioSummary.change >= 0 ? '+' : '-'}{formatCurrency(Math.abs(portfolioSummary.change || 0))}
                   </strong>
                 </div>
                 <div className="mini-stat">
                   <span>Top Coin</span>
-                  <strong>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</strong>
+                  <strong>{portfolioSummary.positions[0]?.symbol?.toUpperCase() || selectedCoin?.symbol?.toUpperCase() || 'BTC'}</strong>
                 </div>
               </div>
             </section>

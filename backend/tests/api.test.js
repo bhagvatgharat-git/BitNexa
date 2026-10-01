@@ -128,6 +128,37 @@ test('POST /api/transactions stores and returns order history for an authenticat
   assert.equal(listResponse.body.transactions.length >= 1, true);
 });
 
+test('GET /api/portfolio/summary returns live portfolio metrics for an authenticated user', async () => {
+  const email = 'portfolio-summary-demo@example.com';
+  const register = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Portfolio Summary User',
+      email,
+      password: 'Password123!'
+    });
+
+  await request(app)
+    .post('/api/portfolio')
+    .set('Authorization', `Bearer ${register.body.token}`)
+    .send({
+      coinId: 'bitcoin',
+      symbol: 'BTC',
+      amount: 0.5,
+      averagePrice: 60000,
+      allocation: 100,
+    });
+
+  const response = await request(app)
+    .get('/api/portfolio/summary')
+    .set('Authorization', `Bearer ${register.body.token}`);
+
+  assert.equal(response.status, 200);
+  assert.ok(typeof response.body.totalValue === 'number');
+  assert.ok(typeof response.body.totalInvested === 'number');
+  assert.ok(typeof response.body.change === 'number');
+});
+
 test.after(async () => {
   await closeServer();
 });
