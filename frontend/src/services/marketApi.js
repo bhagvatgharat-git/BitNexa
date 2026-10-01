@@ -133,6 +133,25 @@ export const marketApi = {
       body: JSON.stringify(entry),
     });
   },
+  getAlerts(token) {
+    return request('/api/alerts', {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  saveAlert(token, entry) {
+    return request('/api/alerts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(entry),
+    });
+  },
 };
 
 export default marketApi;

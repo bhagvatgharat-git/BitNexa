@@ -46,6 +46,56 @@ test('POST /api/watchlist stores tracked coins for authenticated user', async ()
   assert.deepEqual(response.body.coinIds, ['bitcoin', 'ethereum', 'solana']);
 });
 
+test('POST /api/portfolio stores a position for an authenticated user', async () => {
+  const email = 'portfolio-demo@example.com';
+  const register = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Portfolio User',
+      email,
+      password: 'Password123!'
+    });
+
+  const response = await request(app)
+    .post('/api/portfolio')
+    .set('Authorization', `Bearer ${register.body.token}`)
+    .send({
+      coinId: 'bitcoin',
+      symbol: 'BTC',
+      amount: 0.42,
+      averagePrice: 62000,
+      allocation: 40,
+    });
+
+  assert.equal(response.status, 201);
+  assert.equal(response.body.portfolio.positions[0].coinId, 'bitcoin');
+  assert.equal(response.body.portfolio.positions[0].amount, 0.42);
+});
+
+test('POST /api/alerts creates an alert for an authenticated user', async () => {
+  const email = 'alerts-demo@example.com';
+  const register = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Alerts User',
+      email,
+      password: 'Password123!'
+    });
+
+  const response = await request(app)
+    .post('/api/alerts')
+    .set('Authorization', `Bearer ${register.body.token}`)
+    .send({
+      coinId: 'ethereum',
+      targetPrice: 3500,
+      direction: 'above',
+    });
+
+  assert.equal(response.status, 201);
+  assert.equal(response.body.alert.coinId, 'ethereum');
+  assert.equal(response.body.alert.direction, 'above');
+});
+
 test.after(async () => {
   await closeServer();
 });

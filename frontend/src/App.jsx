@@ -146,6 +146,9 @@ function App() {
   const [authMode, setAuthMode] = useState('login');
   const [authForm, setAuthForm] = useState({ name: '', email: 'demo@example.com', password: 'Password123!' });
   const [authError, setAuthError] = useState('');
+  const [portfolio, setPortfolio] = useState({ positions: [], totalValue: 0 });
+  const [alerts, setAlerts] = useState([]);
+  const [newAlert, setNewAlert] = useState({ coinId: 'bitcoin', targetPrice: '', direction: 'above' });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -587,6 +590,27 @@ function App() {
   }, [selectedCoin]);
 
   const portfolioBreakdown = useMemo(() => {
+    if (portfolio.positions.length) {
+      const totalValue = portfolio.positions.reduce((sum, position) => {
+        const currentPrice = Number(coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice || 0);
+        return sum + (Number(position.amount || 0) * currentPrice);
+      }, 0) || 1;
+
+      return portfolio.positions.map((position, index) => {
+        const currentPrice = Number(coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice || 0);
+        const value = Number(position.amount || 0) * currentPrice;
+        const weight = totalValue ? (value / totalValue) * 100 : 0;
+        const palette = ['var(--primary)', 'var(--primary-strong)', 'var(--success)', 'var(--warning)', 'var(--error)'];
+
+        return {
+          label: position.symbol || position.coinId?.toUpperCase(),
+          weight: Number(weight.toFixed(1)),
+          value: formatCurrency(value),
+          color: palette[index % palette.length],
+        };
+      });
+    }
+
     const weights = [
       { label: 'BTC', weight: 42, value: '$52.7K', color: 'var(--primary)' },
       { label: 'ETH', weight: 31, value: '$39.1K', color: 'var(--primary-strong)' },
@@ -595,13 +619,23 @@ function App() {
     ];
 
     return weights;
-  }, []);
+  }, [coins, portfolio]);
 
-  const alertFeed = useMemo(() => [
-    { title: 'BTC breakout', detail: 'Above 20-day trend line with rising volume.', tone: 'positive' },
-    { title: 'ETH watch', detail: 'Range squeeze building near key resistance.', tone: 'neutral' },
-    { title: 'SOL risk', detail: 'Pullback signal needs confirmation before entry.', tone: 'negative' },
-  ], []);
+  const alertFeed = useMemo(() => {
+    if (alerts.length) {
+      return alerts.map((alert) => ({
+        title: `${alert.coinId?.toUpperCase() || 'Asset'} ${alert.direction === 'above' ? 'above' : 'below'} target`,
+        detail: `Trigger at ${formatCurrency(Number(alert.targetPrice || 0))}`,
+        tone: alert.direction === 'above' ? 'positive' : 'negative',
+      }));
+    }
+
+    return [
+      { title: 'BTC breakout', detail: 'Above 20-day trend line with rising volume.', tone: 'positive' },
+      { title: 'ETH watch', detail: 'Range squeeze building near key resistance.', tone: 'neutral' },
+      { title: 'SOL risk', detail: 'Pullback signal needs confirmation before entry.', tone: 'negative' },
+    ];
+  }, [alerts]);
 
   const orderBook = useMemo(() => ({
     asks: [
@@ -705,6 +739,23 @@ function App() {
         ...current,
       ].slice(0, 5));
 
+      if (token && user && currentCoin) {
+        try {
+          const savedPortfolio = await marketApi.savePortfolio(token, {
+            coinId: currentCoin.id,
+            symbol: currentCoin.symbol,
+            amount: Number(parsedAmount),
+            averagePrice: Number(currentCoin.current_price),
+            allocation: Number(((currentCoin.market_cap || 0) / Math.max(globalStats.totalMarketCap || 1, 1)) * 100) || 0,
+          });
+          if (savedPortfolio && savedPortfolio.portfolio) {
+            setPortfolio(savedPortfolio.portfolio);
+          }
+        } catch (portfolioError) {
+          console.error('Unable to persist portfolio:', portfolioError);
+        }
+      }
+
       setToast({
         id: Date.now(),
         type: orderSide === 'buy' ? 'success' : 'info',
@@ -734,16 +785,36 @@ function App() {
   }, [token, user, watchlist]);
 
   useEffect(() => {
-    if (!token || !user) return;
+    if (!token || !user) {
+      setPortfolio({ positions: [], totalValue: 0 });
+      setAlerts([]);
+      return;
+    }
 
     const loadUserData = async () => {
       try {
-        const watchlistResponse = await marketApi.getWatchlist(token);
-        if (Array.isArray(watchlistResponse?.coinIds) && watchlistResponse.coinIds.length) {
+        const [watchlistResponse, portfolioResponse, alertsResponse] = await Promise.all([
+          marketApi.getWatchlist(token),
+          marketApi.getPortfolio(token),
+          marketApi.getAlerts(token),
+        ]);
+
+        if (Array.isArray(watchlistResponse?.coinIds)) {
           setWatchlist(watchlistResponse.coinIds);
         }
+
+        if (portfolioResponse && typeof portfolioResponse === 'object') {
+          setPortfolio({
+            positions: Array.isArray(portfolioResponse.positions) ? portfolioResponse.positions : [],
+            totalValue: Number(portfolioResponse.totalValue || 0),
+          });
+        }
+
+        if (Array.isArray(alertsResponse?.alerts)) {
+          setAlerts(alertsResponse.alerts);
+        }
       } catch (error) {
-        console.error('Unable to load synced watchlist:', error);
+        console.error('Unable to load synced user data:', error);
       }
     };
 
@@ -783,7 +854,48 @@ function App() {
   const handleLogout = () => {
     setUser(null);
     setToken('');
+    setPortfolio({ positions: [], totalValue: 0 });
+    setAlerts([]);
     setToast({ id: Date.now(), type: 'info', text: 'You have been logged out.' });
+  };
+
+  const handleCreateAlert = async (event) => {
+    event.preventDefault();
+
+    if (!token || !user) {
+      setToast({ id: Date.now(), type: 'error', text: 'Login to create a custom alert.' });
+      return;
+    }
+
+    if (!newAlert.coinId || !newAlert.targetPrice) {
+      setToast({ id: Date.now(), type: 'error', text: 'Choose a coin and target price first.' });
+      return;
+    }
+
+    try {
+      const response = await marketApi.saveAlert(token, {
+        coinId: newAlert.coinId,
+        targetPrice: Number(newAlert.targetPrice),
+        direction: newAlert.direction,
+      });
+
+      if (response?.alert) {
+        setAlerts((current) => [response.alert, ...current]);
+      }
+
+      setNewAlert({ coinId: selectedCoin?.id || 'bitcoin', targetPrice: '', direction: 'above' });
+      setToast({
+        id: Date.now(),
+        type: 'success',
+        text: `Alert created for ${newAlert.coinId.toUpperCase()}.`,
+      });
+    } catch (error) {
+      setToast({
+        id: Date.now(),
+        type: 'error',
+        text: error?.message || 'Unable to create alert.',
+      });
+    }
   };
 
   const navItems = ['Dashboard', 'Markets', 'Watchlist', 'Portfolio', 'Alerts'];
@@ -1233,7 +1345,7 @@ function App() {
               <div className="panel-card">
                 <div className="panel-header">
                   <h3>Portfolio Allocation</h3>
-                  <span>Live</span>
+                  <span>{portfolio.positions.length ? 'Live' : 'Demo'}</span>
                 </div>
 
                 <div className="allocation-list">
@@ -1255,12 +1367,12 @@ function App() {
               <div className="panel-card">
                 <div className="panel-header">
                   <h3>Signal Alerts</h3>
-                  <span>3 new</span>
+                  <span>{alerts.length ? `${alerts.length} saved` : '3 new'}</span>
                 </div>
 
                 <div className="alert-list">
                   {alertFeed.map((alert) => (
-                    <div key={alert.title} className={`alert-item ${alert.tone}`}>
+                    <div key={`${alert.title}-${alert.detail}`} className={`alert-item ${alert.tone}`}>
                       <div className="alert-dot" />
                       <div>
                         <strong>{alert.title}</strong>
@@ -2102,7 +2214,7 @@ function App() {
               <div className="panel-card">
                 <div className="panel-header">
                   <h3>Portfolio Allocation</h3>
-                  <span>Live</span>
+                  <span>{portfolio.positions.length ? 'Live' : 'Demo'}</span>
                 </div>
 
                 <div className="allocation-list">
@@ -2124,12 +2236,12 @@ function App() {
               <div className="panel-card">
                 <div className="panel-header">
                   <h3>Signal Alerts</h3>
-                  <span>3 new</span>
+                  <span>{alerts.length ? `${alerts.length} saved` : '3 new'}</span>
                 </div>
 
                 <div className="alert-list">
                   {alertFeed.map((alert) => (
-                    <div key={alert.title} className={`alert-item ${alert.tone}`}>
+                    <div key={`${alert.title}-${alert.detail}`} className={`alert-item ${alert.tone}`}>
                       <div className="alert-dot" />
                       <div>
                         <strong>{alert.title}</strong>
@@ -2139,6 +2251,39 @@ function App() {
                   ))}
                 </div>
               </div>
+            </section>
+
+            <section className="panel-card" style={{ marginTop: '1.5rem' }}>
+              <div className="panel-header">
+                <h3>Create alert</h3>
+                <span>{user ? 'Saved to account' : 'Login required'}</span>
+              </div>
+
+              <form className="alert-form" onSubmit={handleCreateAlert}>
+                <label className="modal-field">
+                  Coin
+                  <select value={newAlert.coinId} onChange={(event) => setNewAlert((current) => ({ ...current, coinId: event.target.value }))}>
+                    {coins.map((coin) => (
+                      <option key={coin.id} value={coin.id}>{coin.symbol.toUpperCase()} - {coin.name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="modal-field">
+                  Target price
+                  <input type="number" min="0" step="0.01" value={newAlert.targetPrice} onChange={(event) => setNewAlert((current) => ({ ...current, targetPrice: event.target.value }))} placeholder="3500" />
+                </label>
+
+                <label className="modal-field">
+                  Direction
+                  <select value={newAlert.direction} onChange={(event) => setNewAlert((current) => ({ ...current, direction: event.target.value }))}>
+                    <option value="above">Above</option>
+                    <option value="below">Below</option>
+                  </select>
+                </label>
+
+                <button type="submit" className="primary-btn" disabled={!user}>Save alert</button>
+              </form>
             </section>
 
             <section className="terminal-grid">
