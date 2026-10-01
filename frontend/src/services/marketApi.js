@@ -32,9 +32,9 @@ async function resolveApiBaseUrl() {
   return cachedApiBaseUrl;
 }
 
-async function request(path) {
+async function request(path, options = {}) {
   const apiBaseUrl = await resolveApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}${path}`);
+  const response = await fetch(`${apiBaseUrl}${path}`, options);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -64,6 +64,74 @@ export const marketApi = {
   },
   getCoin(id) {
     return request(`/api/coin/${encodeURIComponent(id)}`);
+  },
+  placeTrade(payload) {
+    return request('/api/trade', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  },
+  register(payload) {
+    return request('/api/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  },
+  login(payload) {
+    return request('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  },
+  getWatchlist(token) {
+    return request('/api/watchlist', {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  saveWatchlist(token, coinIds) {
+    return request('/api/watchlist', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ coinIds }),
+    });
+  },
+  getPortfolio(token) {
+    return request('/api/portfolio', {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  savePortfolio(token, entry) {
+    return request('/api/portfolio', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(entry),
+    });
   },
 };
 

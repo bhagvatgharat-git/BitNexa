@@ -1,29 +1,16 @@
 const axios = require('axios');
 
-const DEFAULT_IDS = Array.from(new Set([
-  'bitcoin', 'ethereum', 'tether', 'binancecoin', 'solana', 'ripple', 'usd-coin', 'dogecoin',
-  'tron', 'cardano', 'avalanche-2', 'polygon', 'chainlink', 'litecoin', 'staked-ether', 'okb',
-  'monero', 'toncoin', 'cosmos', 'near', 'vechain', 'filecoin', 'internet-computer', 'stellar',
-  'algorand', 'optimism', 'arbitrum', 'kaspa', 'sui', 'aptos', 'injective-protocol', 'mantle',
-  'stacks', 'tezos', 'theta-token', 'neo', 'lisk', 'polkadot', 'uniswap', 'sei-network', 'celestia',
-  'flow', 'pepe', 'render-token', 'dai', 'rocket-pool', 'fetch-ai', 'aave', 'fantom', 'maker',
-  'bitcoin-cash', 'eos', 'true-usd', 'binance-usd', 'wrapped-bitcoin', 'ethena-usd', 'gmx', 'dydx',
-  'magic', 'ethereum-classic', 'cronos', 'helium', 'theta-fuel', 'quant-network', 'bonk', 'gala',
-  'klay-token', 'the-graph', 'zcash', 'pax-dollar', 'elrond-erd-2', 'waves', 'thorchain', 'iota',
-  'nem', '0x', 'basic-attention-token', 'ankr', 'enjincoin', 'status', 'pancakeswap-token',
-  'curve-dao-token', 'compound-governance-token', '1inch', 'bittorrent', 'chiliz', 'flare-networks',
-  'radix', 'decentraland', 'synthetix-network-token', 'pax-gold', 'tronix', 'superfarm', 'ravencoin',
-  'nano', 'digibyte', 'celo', 'holo', 'nimiq', 'zilliqa', 'ontology', 'wanchain', 'bytom',
-  'metis-token', 'loom-network', 'coingecko', 'wrapped-eos', 'bitcoin-sv', 'aioz-network', 'bridge-oracle',
-  'ethena', 'immutable-x', 'blur', 'beam', 'oasis-network', 'space-id', 'baby-doge-coin', 'aptos',
-  'worldcoin-wld', 'jupiter-exchange-solana', 'layerzero', 'pyth-network', 'sats-ordinals',
-  'bittensor', 'solaxy', 'meme', 'book-of-meme', 'manta-network', 'hyperliquid',
-  'eigenlayer', 'safe', 'ondo-finance', 'tether-gold', 'usdc', 'ktx', 'ledger', 'beldex',
-  'skale', 'orbital-bridge', 'neon', 'jito', 'multiversx', 'ens', 'osmosis', 'gitcoin', 'snx',
-  'wrapped-btc', 'coinbase-wrapped-staked-eth', 'moonbeam', 'opbnb', 'ore', 'mana', 'arkham',
-  'celestia', 'hashnote-usyc', 'binance-peg-sol', 'arweave', 'zksync', 'coredao', 'base',
-  'blast', 'berachain', 'fartcoin'
-])).slice(0, 100);
+const TRADING_VIEW_TOP_COINS = [
+  'bitcoin', 'ethereum', 'solana', 'binancecoin', 'ripple', 'dogecoin', 'cardano', 'avalanche-2',
+  'polygon', 'chainlink', 'tron', 'litecoin', 'near', 'toncoin', 'stellar', 'algorand', 'cosmos',
+  'sui', 'aptos', 'optimism', 'arbitrum', 'injective-protocol', 'mantle', 'render-token', 'pepe',
+  'dai', 'internet-computer', 'filecoin', 'uniswap', 'monero', 'aave', 'maker', 'tezos', 'theta-token',
+  'neo', 'flow', 'eos', 'lido-dao', 'gmx', 'celestia', 'sei-network', 'fetch-ai', 'fantom', 'kaspa',
+  'pancakeswap-token', 'rocket-pool', 'the-graph', '1inch', 'jito', 'ethena', 'ondo-finance', 'safe',
+  'blast', 'base', 'zksync', 'berachain', 'coredao', 'hyperliquid', 'multiversx'
+];
+
+const DEFAULT_IDS = Array.from(new Set(TRADING_VIEW_TOP_COINS)).slice(0, 100);
 
 const createCoinAvatarImage = (id, symbol = 'C') => {
   const safeId = (id || 'coin').toString().trim();

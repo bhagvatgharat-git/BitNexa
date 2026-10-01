@@ -26,30 +26,18 @@ const normalizeCoinIds = (ids = []) => Array.from(
   )
 ).slice(0, 100);
 
-const TOP_50_IDS = normalizeCoinIds([
-  'bitcoin', 'ethereum', 'tether', 'binancecoin', 'solana', 'ripple', 'usd-coin', 'dogecoin',
-  'tron', 'cardano', 'avalanche-2', 'polygon', 'chainlink', 'litecoin', 'staked-ether', 'okb',
-  'monero', 'toncoin', 'cosmos', 'near', 'vechain', 'filecoin', 'internet-computer', 'stellar',
-  'algorand', 'optimism', 'arbitrum', 'kaspa', 'sui', 'aptos', 'injective-protocol', 'mantle',
-  'stacks', 'tezos', 'theta-token', 'neo', 'lisk', 'polkadot', 'uniswap', 'sei-network', 'celestia',
-  'flow', 'pepe', 'render-token', 'dai', 'rocket-pool', 'fetch-ai', 'aave', 'fantom', 'maker',
-  'bitcoin-cash', 'eos', 'true-usd', 'binance-usd', 'wrapped-bitcoin', 'ethena-usd', 'gmx', 'dydx', 'magic'
+const TRADING_VIEW_TOP_COINS = normalizeCoinIds([
+  'bitcoin', 'ethereum', 'solana', 'binancecoin', 'ripple', 'dogecoin', 'cardano', 'avalanche-2',
+  'polygon', 'chainlink', 'tron', 'litecoin', 'near', 'toncoin', 'stellar', 'algorand', 'cosmos',
+  'sui', 'aptos', 'optimism', 'arbitrum', 'injective-protocol', 'mantle', 'render-token', 'pepe',
+  'dai', 'internet-computer', 'filecoin', 'uniswap', 'monero', 'aave', 'maker', 'tezos', 'theta-token',
+  'neo', 'flow', 'eos', 'lido-dao', 'gmx', 'celestia', 'sei-network', 'fetch-ai', 'fantom', 'kaspa',
+  'pancakeswap-token', 'rocket-pool', 'the-graph', '1inch', 'jito', 'ethena', 'ondo-finance', 'safe',
+  'blast', 'base', 'zksync', 'berachain', 'coredao', 'hyperliquid', 'multiversx'
 ]);
 
-const DEFAULT_IDS = normalizeCoinIds([
-  ...TOP_50_IDS,
-  'ethereum-classic', 'cronos', 'helium', 'theta-fuel', 'quant-network', 'bonk', 'gala',
-  'klay-token', 'the-graph', 'zcash', 'pax-dollar', 'elrond-erd-2', 'waves', 'thorchain', 'iota',
-  'nem', '0x', 'basic-attention-token', 'ankr', 'enjincoin', 'status', 'pancakeswap-token',
-  'curve-dao-token', 'compound-governance-token', '1inch', 'bittorrent', 'chiliz', 'flare-networks',
-  'radix', 'decentraland', 'synthetix-network-token', 'pax-gold', 'tronix', 'superfarm', 'ravencoin',
-  'nano', 'digibyte', 'celo', 'holo', 'nimiq', 'zilliqa', 'ontology', 'wanchain', 'bytom',
-  'metis-token', 'loom-network', 'coingecko', 'wrapped-eos', 'bitcoin-sv', 'aioz-network', 'bridge-oracle',
-  'ethena', 'immutable-x', 'blur', 'beam', 'oasis-network', 'space-id', 'book-of-meme', 'manta-network',
-  'hyperliquid', 'eigenlayer', 'safe', 'ondo-finance', 'tether-gold', 'usdc', 'jito', 'multiversx',
-  'ens', 'osmosis', 'gitcoin', 'snx', 'wrapped-btc', 'moonbeam', 'opbnb', 'mana', 'arkham', 'coredao',
-  'base', 'blast', 'berachain', 'fartcoin', 'zksync'
-]);
+const TOP_50_IDS = TRADING_VIEW_TOP_COINS;
+const DEFAULT_IDS = TRADING_VIEW_TOP_COINS;
 
 const getSafeCoinImage = (coin) => {
   const candidates = [
@@ -112,7 +100,7 @@ function App() {
   const [chartMode, setChartMode] = useState('price');
   const [sortBy, setSortBy] = useState('market_cap');
   const [quickFilter, setQuickFilter] = useState('all');
-  const [selectedNav, setSelectedNav] = useState('Dashboard');
+  const [selectedNav, setSelectedNav] = useState('Markets');
   const [marketTab, setMarketTab] = useState('overview');
   const [searchOpen, setSearchOpen] = useState(false);
   const [chartData, setChartData] = useState({ labels: [], datasets: [] });
@@ -128,6 +116,11 @@ function App() {
   const [trending, setTrending] = useState([]);
   const [toasts, setToasts] = useState([
     { id: 1, type: 'success', text: 'Market feed connected successfully.' },
+  ]);
+  const [tradeHistory, setTradeHistory] = useState([
+    { id: 'ord_1', symbol: 'BTC', side: 'buy', amount: 0.18, quote: 12000.35, timestamp: 'just now' },
+    { id: 'ord_2', symbol: 'ETH', side: 'sell', amount: 1.4, quote: 4800.2, timestamp: '8 min ago' },
+    { id: 'ord_3', symbol: 'SOL', side: 'buy', amount: 22, quote: 3381.88, timestamp: '22 min ago' },
   ]);
   const [watchlist, setWatchlist] = useState(() => {
     if (typeof window === 'undefined') return [];
@@ -638,6 +631,65 @@ function App() {
   ], []);
 
   const orderTotal = tradeCoin ? (Number(amount) || 0) * tradeCoin.current_price : 0;
+
+  const handlePlaceOrder = async () => {
+    const currentCoin = tradeCoin || selectedCoin;
+    const parsedAmount = Number(amount);
+
+    if (!currentCoin) {
+      setToast({ id: Date.now(), type: 'error', text: 'No market selected for order placement.' });
+      return;
+    }
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setToast({ id: Date.now(), type: 'error', text: 'Enter a valid order amount greater than zero.' });
+      return;
+    }
+
+    try {
+      const response = await marketApi.placeTrade({
+        symbol: currentCoin.id,
+        side: orderSide,
+        amount: parsedAmount,
+        type: orderType,
+        price: currentCoin.current_price,
+      });
+
+      const order = response?.order || {
+        id: `ord_${Date.now()}`,
+        symbol: currentCoin.symbol.toUpperCase(),
+        side: orderSide,
+        amount: parsedAmount,
+        quote: orderTotal,
+        timestamp: 'just now',
+      };
+
+      setTradeHistory((current) => [
+        {
+          ...order,
+          id: order.id || `ord_${Date.now()}`,
+          symbol: order.symbol || currentCoin.symbol.toUpperCase(),
+          side: order.side || orderSide,
+          amount: Number(order.amount || parsedAmount),
+          quote: Number(order.quote || orderTotal),
+          timestamp: order.timestamp || 'just now',
+        },
+        ...current,
+      ].slice(0, 5));
+
+      setToast({
+        id: Date.now(),
+        type: orderSide === 'buy' ? 'success' : 'info',
+        text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order filled for ${currentCoin.symbol.toUpperCase()} at ${formatCurrency(currentCoin.current_price)}.`,
+      });
+    } catch (error) {
+      setToast({
+        id: Date.now(),
+        type: 'error',
+        text: error?.message || 'Unable to place trade order right now.',
+      });
+    }
+  };
 
   const toggleWatchlist = (coinId) => {
     setWatchlist((current) =>
@@ -1572,17 +1624,22 @@ function App() {
                       </div>
                     </div>
 
+                    <div className="alert-list" style={{ margin: '16px 0' }}>
+                      {tradeHistory.map((trade) => (
+                        <div key={trade.id} className={`alert-item ${trade.side === 'buy' ? 'positive' : 'negative'}`}>
+                          <div className="alert-dot" />
+                          <div>
+                            <strong>{trade.side.toUpperCase()} {trade.symbol}</strong>
+                            <small>{trade.amount} {trade.symbol} • {formatCurrency(trade.quote)} • {trade.timestamp}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
                     <button
                       type="button"
                       className={`place-order ${orderSide}`}
-                      onClick={() => {
-                        setSelectedNav('Markets');
-                        setToast({
-                          id: Date.now(),
-                          type: orderSide === 'buy' ? 'success' : 'info',
-                          text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order queued for ${selectedCoin?.symbol?.toUpperCase() || 'BTC'}.`,
-                        });
-                      }}
+                      onClick={handlePlaceOrder}
                     >
                       {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
                     </button>
