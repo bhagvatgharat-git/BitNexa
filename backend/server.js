@@ -83,6 +83,65 @@ const ensureUserState = (userId) => {
   if (!alerts.has(userId)) alerts.set(userId, []);
 };
 
+const evaluatePortfolioInsights = (positions, marketMap = new Map()) => {
+  if (!Array.isArray(positions) || !positions.length) {
+    return {
+      diversificationScore: 0,
+      concentrationRisk: 100,
+      topPerformer: 'No positions',
+      largestPosition: 'N/A',
+      rebalancingNote: 'Add positions to unlock portfolio insights.',
+      allocations: [],
+    };
+  }
+
+  const normalizedPositions = positions.map((position) => {
+    const amount = Number(position.amount || 0);
+    const averagePrice = Number(position.averagePrice || 0);
+    const currentPrice = Number(marketMap.get(String(position.coinId)) ?? averagePrice ?? 0);
+    const value = amount * currentPrice;
+    const returnPercent = averagePrice ? ((currentPrice - averagePrice) / averagePrice) * 100 : 0;
+
+    return {
+      ...position,
+      amount,
+      averagePrice,
+      currentPrice,
+      value,
+      returnPercent,
+    };
+  });
+
+  const totalValue = normalizedPositions.reduce((sum, position) => sum + position.value, 0) || 1;
+  const allocations = normalizedPositions
+    .map((position) => ({
+      ...position,
+      weight: totalValue ? (position.value / totalValue) * 100 : 0,
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  const concentrationRisk = allocations.length ? allocations[0].weight : 0;
+  const diversificationScore = Math.max(0, Math.min(100, 100 - concentrationRisk));
+  const topPerformer = allocations.length
+    ? allocations.reduce((best, current) => (current.returnPercent > best.returnPercent ? current : best), allocations[0])
+    : null;
+
+  return {
+    diversificationScore: Number(diversificationScore.toFixed(1)),
+    concentrationRisk: Number(concentrationRisk.toFixed(1)),
+    topPerformer: topPerformer ? String(topPerformer.symbol || topPerformer.coinId || 'N/A') : 'N/A',
+    largestPosition: allocations[0] ? String(allocations[0].symbol || allocations[0].coinId || 'N/A') : 'N/A',
+    rebalancingNote: concentrationRisk > 60
+      ? 'Concentration risk is elevated. Consider rebalancing into lower-weight coins.'
+      : 'Portfolio diversification remains stable for the current allocation.',
+    allocations: allocations.map((item) => ({
+      label: String(item.symbol || item.coinId || 'Asset'),
+      weight: Number((item.weight || 0).toFixed(1)),
+      value: Number(item.value || 0),
+    })),
+  };
+};
+
 const evaluateAlertStatus = (alert, currentPrice) => {
   const targetPrice = Number(alert.targetPrice || 0);
   const direction = String(alert.direction || 'above').toLowerCase();
@@ -295,6 +354,22 @@ app.get('/api/portfolio/summary', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Portfolio summary failed:', error.message);
     return res.status(500).json({ error: 'Unable to calculate portfolio summary.' });
+  }
+});
+
+app.get('/api/portfolio/insights', authenticate, async (req, res) => {
+  try {
+    ensureUserState(req.user.id);
+    const userPortfolio = portfolios.get(req.user.id) || { positions: [], totalValue: 0 };
+    const positions = Array.isArray(userPortfolio.positions) ? userPortfolio.positions : [];
+    const ids = [...new Set(positions.map((position) => String(position.coinId || '').trim()).filter(Boolean))];
+    const marketData = ids.length ? await getMarketData(ids) : [];
+    const marketMap = new Map((marketData || []).map((coin) => [String(coin.id), Number(coin.current_price || 0)]));
+
+    return res.json(evaluatePortfolioInsights(positions, marketMap));
+  } catch (error) {
+    console.error('Portfolio insights failed:', error.message);
+    return res.status(500).json({ error: 'Unable to calculate portfolio insights.' });
   }
 });
 

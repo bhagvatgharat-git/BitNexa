@@ -168,6 +168,48 @@ test('GET /api/portfolio/summary returns live portfolio metrics for an authentic
   assert.ok(typeof response.body.change === 'number');
 });
 
+test('GET /api/portfolio/insights returns diversification and risk metrics', async () => {
+  const email = 'portfolio-insights-demo@example.com';
+  const register = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Portfolio Insights User',
+      email,
+      password: 'Password123!'
+    });
+
+  await request(app)
+    .post('/api/portfolio')
+    .set('Authorization', `Bearer ${register.body.token}`)
+    .send({
+      coinId: 'bitcoin',
+      symbol: 'BTC',
+      amount: 0.5,
+      averagePrice: 60000,
+      allocation: 50,
+    });
+
+  await request(app)
+    .post('/api/portfolio')
+    .set('Authorization', `Bearer ${register.body.token}`)
+    .send({
+      coinId: 'ethereum',
+      symbol: 'ETH',
+      amount: 1.5,
+      averagePrice: 3000,
+      allocation: 50,
+    });
+
+  const response = await request(app)
+    .get('/api/portfolio/insights')
+    .set('Authorization', `Bearer ${register.body.token}`);
+
+  assert.equal(response.status, 200);
+  assert.ok(typeof response.body.diversificationScore === 'number');
+  assert.ok(typeof response.body.concentrationRisk === 'number');
+  assert.ok(typeof response.body.topPerformer === 'string');
+});
+
 test.after(async () => {
   await closeServer();
 });

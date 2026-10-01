@@ -148,6 +148,14 @@ function App() {
   const [authError, setAuthError] = useState('');
   const [portfolio, setPortfolio] = useState({ positions: [], totalValue: 0 });
   const [portfolioSummary, setPortfolioSummary] = useState({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
+  const [portfolioInsights, setPortfolioInsights] = useState({
+    diversificationScore: 0,
+    concentrationRisk: 0,
+    topPerformer: 'N/A',
+    largestPosition: 'N/A',
+    rebalancingNote: 'Add positions to unlock insights.',
+    allocations: [],
+  });
   const [alerts, setAlerts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [newAlert, setNewAlert] = useState({ coinId: 'bitcoin', targetPrice: '', direction: 'above' });
@@ -817,10 +825,11 @@ function App() {
 
     const loadUserData = async () => {
       try {
-        const [watchlistResponse, portfolioResponse, portfolioSummaryResponse, alertsResponse, transactionsResponse] = await Promise.all([
+        const [watchlistResponse, portfolioResponse, portfolioSummaryResponse, portfolioInsightsResponse, alertsResponse, transactionsResponse] = await Promise.all([
           marketApi.getWatchlist(token),
           marketApi.getPortfolio(token),
           marketApi.getPortfolioSummary(token),
+          marketApi.getPortfolioInsights(token),
           marketApi.getAlerts(token),
           marketApi.getTransactions(token),
         ]);
@@ -843,6 +852,17 @@ function App() {
             change: Number(portfolioSummaryResponse.change || 0),
             changePercent: Number(portfolioSummaryResponse.changePercent || 0),
             positions: Array.isArray(portfolioSummaryResponse.positions) ? portfolioSummaryResponse.positions : [],
+          });
+        }
+
+        if (portfolioInsightsResponse && typeof portfolioInsightsResponse === 'object') {
+          setPortfolioInsights({
+            diversificationScore: Number(portfolioInsightsResponse.diversificationScore || 0),
+            concentrationRisk: Number(portfolioInsightsResponse.concentrationRisk || 0),
+            topPerformer: String(portfolioInsightsResponse.topPerformer || 'N/A'),
+            largestPosition: String(portfolioInsightsResponse.largestPosition || 'N/A'),
+            rebalancingNote: String(portfolioInsightsResponse.rebalancingNote || 'No insights yet.'),
+            allocations: Array.isArray(portfolioInsightsResponse.allocations) ? portfolioInsightsResponse.allocations : [],
           });
         }
 
@@ -904,6 +924,14 @@ function App() {
     setToken('');
     setPortfolio({ positions: [], totalValue: 0 });
     setPortfolioSummary({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
+    setPortfolioInsights({
+      diversificationScore: 0,
+      concentrationRisk: 0,
+      topPerformer: 'N/A',
+      largestPosition: 'N/A',
+      rebalancingNote: 'Add positions to unlock insights.',
+      allocations: [],
+    });
     setAlerts([]);
     setToast({ id: Date.now(), type: 'info', text: 'You have been logged out.' });
   };
@@ -2300,6 +2328,34 @@ function App() {
                   ))}
                 </div>
               </div>
+            </section>
+
+            <section className="panel-card" style={{ marginTop: '1.5rem' }}>
+              <div className="panel-header">
+                <h3>Portfolio Intelligence</h3>
+                <span>{portfolioInsights.diversificationScore.toFixed(0)}/100</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                <div className="mini-stat">
+                  <span>Diversification</span>
+                  <strong>{portfolioInsights.diversificationScore.toFixed(1)}%</strong>
+                </div>
+                <div className="mini-stat">
+                  <span>Concentration</span>
+                  <strong className={portfolioInsights.concentrationRisk > 60 ? 'negative' : 'positive'}>
+                    {portfolioInsights.concentrationRisk.toFixed(1)}%
+                  </strong>
+                </div>
+                <div className="mini-stat">
+                  <span>Top performer</span>
+                  <strong>{portfolioInsights.topPerformer}</strong>
+                </div>
+              </div>
+
+              <small style={{ display: 'block', marginTop: '1rem', color: 'var(--text-secondary)' }}>
+                {portfolioInsights.rebalancingNote}
+              </small>
             </section>
 
             <section className="panel-card" style={{ marginTop: '1.5rem' }}>

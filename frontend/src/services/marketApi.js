@@ -130,6 +130,14 @@ export const marketApi = {
       },
     });
   },
+  getPortfolioInsights(token) {
+    return request('/api/portfolio/insights', {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
   savePortfolio(token, entry) {
     return request('/api/portfolio', {
       method: 'POST',
