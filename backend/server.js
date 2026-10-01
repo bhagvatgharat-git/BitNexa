@@ -293,6 +293,39 @@ app.get('/api/transactions', authenticate, (req, res) => {
   return res.json({ transactions: transactions.get(req.user.id) || [] });
 });
 
+app.post('/api/transactions', authenticate, (req, res) => {
+  const { symbol, side = 'buy', amount, quote, type = 'market', status = 'filled', price } = req.body || {};
+  const symbolKey = String(symbol || '').trim();
+  const amountValue = Number(amount);
+
+  if (!symbolKey) {
+    return res.status(400).json({ error: 'Symbol is required.' });
+  }
+
+  if (!Number.isFinite(amountValue) || amountValue <= 0) {
+    return res.status(400).json({ error: 'Trade amount must be greater than zero.' });
+  }
+
+  ensureUserState(req.user.id);
+  const transaction = {
+    id: `txn_${Date.now()}`,
+    symbol: symbolKey.toUpperCase(),
+    side: String(side || 'buy').toLowerCase(),
+    type: String(type || 'market').toLowerCase(),
+    amount: Number(amountValue.toFixed(6)),
+    quote: Number(Number(quote || 0).toFixed(2)),
+    price: Number(Number(price || quote / amountValue || 0).toFixed(4)),
+    status: String(status || 'filled').toLowerCase(),
+    timestamp: new Date().toISOString(),
+  };
+
+  const userTransactions = transactions.get(req.user.id) || [];
+  userTransactions.unshift(transaction);
+  transactions.set(req.user.id, userTransactions.slice(0, 50));
+
+  return res.status(201).json({ message: 'Transaction recorded.', transaction });
+});
+
 app.get('/api/market', async (req, res) => {
   const ids = (req.query.ids || DEFAULT_IDS.join(',')).split(',').filter(Boolean);
   const data = await getMarketData(ids);

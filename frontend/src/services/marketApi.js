@@ -133,6 +133,25 @@ export const marketApi = {
       body: JSON.stringify(entry),
     });
   },
+  getTransactions(token) {
+    return request('/api/transactions', {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  },
+  saveTransaction(token, entry) {
+    return request('/api/transactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(entry),
+    });
+  },
   getAlerts(token) {
     return request('/api/alerts', {
       headers: {

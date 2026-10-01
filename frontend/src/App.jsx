@@ -148,6 +148,7 @@ function App() {
   const [authError, setAuthError] = useState('');
   const [portfolio, setPortfolio] = useState({ positions: [], totalValue: 0 });
   const [alerts, setAlerts] = useState([]);
+  const [transactions, setTransactions] = useState([]);
   const [newAlert, setNewAlert] = useState({ coinId: 'bitcoin', targetPrice: '', direction: 'above' });
 
   useEffect(() => {
@@ -751,8 +752,30 @@ function App() {
           if (savedPortfolio && savedPortfolio.portfolio) {
             setPortfolio(savedPortfolio.portfolio);
           }
+
+          const savedTransaction = await marketApi.saveTransaction(token, {
+            symbol: currentCoin.symbol,
+            side: orderSide,
+            amount: Number(parsedAmount),
+            quote: Number(orderTotal || 0),
+            type: orderType,
+            price: Number(currentCoin.current_price),
+            status: 'filled',
+          });
+
+          if (savedTransaction?.transaction) {
+            setTransactions((current) => [savedTransaction.transaction, ...current].slice(0, 10));
+            setTradeHistory((current) => [{
+              id: savedTransaction.transaction.id,
+              symbol: savedTransaction.transaction.symbol,
+              side: savedTransaction.transaction.side,
+              amount: Number(savedTransaction.transaction.amount || parsedAmount),
+              quote: Number(savedTransaction.transaction.quote || orderTotal),
+              timestamp: new Date(savedTransaction.transaction.timestamp || Date.now()).toLocaleString(),
+            }, ...current].slice(0, 5));
+          }
         } catch (portfolioError) {
-          console.error('Unable to persist portfolio:', portfolioError);
+          console.error('Unable to persist portfolio or transaction:', portfolioError);
         }
       }
 
@@ -793,10 +816,11 @@ function App() {
 
     const loadUserData = async () => {
       try {
-        const [watchlistResponse, portfolioResponse, alertsResponse] = await Promise.all([
+        const [watchlistResponse, portfolioResponse, alertsResponse, transactionsResponse] = await Promise.all([
           marketApi.getWatchlist(token),
           marketApi.getPortfolio(token),
           marketApi.getAlerts(token),
+          marketApi.getTransactions(token),
         ]);
 
         if (Array.isArray(watchlistResponse?.coinIds)) {
@@ -812,6 +836,18 @@ function App() {
 
         if (Array.isArray(alertsResponse?.alerts)) {
           setAlerts(alertsResponse.alerts);
+        }
+
+        if (Array.isArray(transactionsResponse?.transactions)) {
+          setTransactions(transactionsResponse.transactions);
+          setTradeHistory(transactionsResponse.transactions.map((trade) => ({
+            id: trade.id,
+            symbol: trade.symbol,
+            side: trade.side,
+            amount: Number(trade.amount || 0),
+            quote: Number(trade.quote || 0),
+            timestamp: new Date(trade.timestamp || Date.now()).toLocaleString(),
+          })));
         }
       } catch (error) {
         console.error('Unable to load synced user data:', error);

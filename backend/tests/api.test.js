@@ -96,6 +96,38 @@ test('POST /api/alerts creates an alert for an authenticated user', async () => 
   assert.equal(response.body.alert.direction, 'above');
 });
 
+test('POST /api/transactions stores and returns order history for an authenticated user', async () => {
+  const email = 'trading-demo@example.com';
+  const register = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Trade User',
+      email,
+      password: 'Password123!'
+    });
+
+  const createResponse = await request(app)
+    .post('/api/transactions')
+    .set('Authorization', `Bearer ${register.body.token}`)
+    .send({
+      symbol: 'btc',
+      side: 'buy',
+      amount: 0.25,
+      quote: 15500,
+      status: 'filled',
+    });
+
+  assert.equal(createResponse.status, 201);
+  assert.equal(createResponse.body.transaction.symbol, 'BTC');
+
+  const listResponse = await request(app)
+    .get('/api/transactions')
+    .set('Authorization', `Bearer ${register.body.token}`);
+
+  assert.equal(listResponse.status, 200);
+  assert.equal(listResponse.body.transactions.length >= 1, true);
+});
+
 test.after(async () => {
   await closeServer();
 });
