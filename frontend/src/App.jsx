@@ -130,12 +130,40 @@ function App() {
       return [];
     }
   });
+  const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('bitnexa-token') || '';
+  });
+  const [user, setUser] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return JSON.parse(localStorage.getItem('bitnexa-user') || 'null');
+    } catch {
+      return null;
+    }
+  });
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [authForm, setAuthForm] = useState({ name: '', email: 'demo@example.com', password: 'Password123!' });
+  const [authError, setAuthError] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('bitnexa-watchlist', JSON.stringify(watchlist));
     }
   }, [watchlist]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (token) localStorage.setItem('bitnexa-token', token);
+    else localStorage.removeItem('bitnexa-token');
+  }, [token]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (user) localStorage.setItem('bitnexa-user', JSON.stringify(user));
+    else localStorage.removeItem('bitnexa-user');
+  }, [user]);
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -691,12 +719,71 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (!token || !user) return;
+
+    const syncWatchlist = async () => {
+      try {
+        await marketApi.saveWatchlist(token, watchlist);
+      } catch (error) {
+        console.error('Unable to sync watchlist:', error);
+      }
+    };
+
+    syncWatchlist();
+  }, [token, user, watchlist]);
+
+  useEffect(() => {
+    if (!token || !user) return;
+
+    const loadUserData = async () => {
+      try {
+        const watchlistResponse = await marketApi.getWatchlist(token);
+        if (Array.isArray(watchlistResponse?.coinIds) && watchlistResponse.coinIds.length) {
+          setWatchlist(watchlistResponse.coinIds);
+        }
+      } catch (error) {
+        console.error('Unable to load synced watchlist:', error);
+      }
+    };
+
+    loadUserData();
+  }, [token, user]);
+
   const toggleWatchlist = (coinId) => {
     setWatchlist((current) =>
       current.includes(coinId)
         ? current.filter((id) => id !== coinId)
         : [...current, coinId]
     );
+  };
+
+  const handleAuthSubmit = async (event) => {
+    event.preventDefault();
+    setAuthError('');
+
+    try {
+      const payload = authMode === 'login'
+        ? { email: authForm.email, password: authForm.password }
+        : { name: authForm.name, email: authForm.email, password: authForm.password };
+
+      const response = await (authMode === 'login' ? marketApi.login(payload) : marketApi.register(payload));
+      const nextUser = response.user || { name: authForm.name || 'BitNexa Trader', email: authForm.email };
+
+      setUser(nextUser);
+      setToken(response.token || '');
+      setAuthOpen(false);
+      setAuthForm({ name: '', email: 'demo@example.com', password: 'Password123!' });
+      setToast({ id: Date.now(), type: 'success', text: authMode === 'login' ? 'Welcome back to BitNexa.' : 'Account created successfully.' });
+    } catch (error) {
+      setAuthError(error?.message || 'Authentication failed.');
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setToken('');
+    setToast({ id: Date.now(), type: 'info', text: 'You have been logged out.' });
   };
 
   const navItems = ['Dashboard', 'Markets', 'Watchlist', 'Portfolio', 'Alerts'];
@@ -864,6 +951,17 @@ function App() {
               <button type="button" className="theme-toggle" onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
                 {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
               </button>
+              {user ? (
+                <>
+                  <div className="user-pill">
+                    <span className="user-dot" />
+                    {user.name ? user.name.split(' ')[0] : 'Trader'}
+                  </div>
+                  <button type="button" className="ghost-btn" onClick={handleLogout}>Logout</button>
+                </>
+              ) : (
+                <button type="button" className="primary-btn" onClick={() => setAuthOpen(true)}>Login</button>
+              )}
               <button
                 type="button"
                 className="primary-btn"
@@ -1962,7 +2060,14 @@ function App() {
                 </div>
               </div>
 
-              {watchlistCoins.length ? (
+              {!user && !watchlistCoins.length ? (
+                <div className="empty-state">
+                  <div className="empty-icon">★</div>
+                  <h4>Sign in to save your watchlist</h4>
+                  <p>Login and sync your favorite coins across devices.</p>
+                  <button type="button" className="primary-btn" onClick={() => setAuthOpen(true)}>Login now</button>
+                </div>
+              ) : watchlistCoins.length ? (
                 <div className="watchlist-list">
                   {watchlistCoins.map((coin) => (
                     <div key={coin.id} className="watchlist-item">
@@ -2106,6 +2211,48 @@ function App() {
 
         </main>
       </div>
+
+      {authOpen && (
+        <div className="modal-backdrop" onClick={() => setAuthOpen(false)}>
+          <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="topbar-kicker">Secure access</p>
+                <h3>{authMode === 'login' ? 'Login to BitNexa' : 'Create account'}</h3>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setAuthOpen(false)}>×</button>
+            </div>
+
+            <form className="modal-body" onSubmit={handleAuthSubmit}>
+              {authMode === 'register' && (
+                <label className="modal-field">
+                  Full name
+                  <input type="text" value={authForm.name} onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))} placeholder="Alex Trader" />
+                </label>
+              )}
+
+              <label className="modal-field">
+                Email
+                <input type="email" value={authForm.email} onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))} placeholder="you@example.com" />
+              </label>
+
+              <label className="modal-field">
+                Password
+                <input type="password" value={authForm.password} onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))} placeholder="••••••••" />
+              </label>
+
+              {authError && <div className="error-banner">{authError}</div>}
+
+              <div className="modal-actions">
+                <button type="button" className="ghost-btn" onClick={() => setAuthMode((current) => (current === 'login' ? 'register' : 'login'))}>
+                  {authMode === 'login' ? 'Create account' : 'Use login'}
+                </button>
+                <button type="submit" className="primary-btn">{authMode === 'login' ? 'Login' : 'Register'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <div className="toast-stack">
         {toasts.map((toast) => (

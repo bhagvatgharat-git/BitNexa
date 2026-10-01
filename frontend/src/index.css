@@ -582,6 +582,27 @@ body[data-theme='light'] .sort-wrap select {
   padding: 10px 12px;
 }
 
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(94, 196, 255, 0.08);
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.user-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 12px rgba(54, 211, 153, 0.9);
+}
+
 .primary-btn,
 .ghost-btn {
   border: none;
@@ -2369,6 +2390,7 @@ body[data-theme='light'] .hero-banner {
   font-size: 0.8rem;
 }
 
+.modal-field input,
 .modal-field select {
   background: var(--card);
   border: 1px solid var(--border);
