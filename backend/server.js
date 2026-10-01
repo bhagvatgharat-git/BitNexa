@@ -83,6 +83,21 @@ const ensureUserState = (userId) => {
   if (!alerts.has(userId)) alerts.set(userId, []);
 };
 
+const evaluateAlertStatus = (alert, currentPrice) => {
+  const targetPrice = Number(alert.targetPrice || 0);
+  const direction = String(alert.direction || 'above').toLowerCase();
+  const price = Number(currentPrice || 0);
+  const isTriggered = direction === 'above' ? price >= targetPrice : price <= targetPrice;
+
+  return {
+    ...alert,
+    currentPrice: price,
+    status: isTriggered ? 'triggered' : 'active',
+    isTriggered,
+    triggeredAt: isTriggered ? (alert.triggeredAt || new Date().toISOString()) : null,
+  };
+};
+
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
@@ -318,12 +333,28 @@ app.post('/api/portfolio', authenticate, (req, res) => {
   });
 });
 
-app.get('/api/alerts', authenticate, (req, res) => {
-  ensureUserState(req.user.id);
-  return res.json({ alerts: alerts.get(req.user.id) || [] });
+app.get('/api/alerts', authenticate, async (req, res) => {
+  try {
+    ensureUserState(req.user.id);
+    const userAlerts = alerts.get(req.user.id) || [];
+    const ids = [...new Set(userAlerts.map((alert) => String(alert.coinId || '').trim()).filter(Boolean))];
+    const marketData = ids.length ? await getMarketData(ids) : [];
+    const marketMap = new Map((marketData || []).map((coin) => [String(coin.id), Number(coin.current_price || 0)]));
+
+    const evaluatedAlerts = userAlerts.map((alert) => {
+      const currentPrice = marketMap.get(String(alert.coinId)) ?? Number(alert.currentPrice || 0);
+      return evaluateAlertStatus(alert, currentPrice);
+    });
+
+    alerts.set(req.user.id, evaluatedAlerts);
+    return res.json({ alerts: evaluatedAlerts });
+  } catch (error) {
+    console.error('Alert evaluation failed:', error.message);
+    return res.status(500).json({ error: 'Unable to evaluate market alerts.' });
+  }
 });
 
-app.post('/api/alerts', authenticate, (req, res) => {
+app.post('/api/alerts', authenticate, async (req, res) => {
   const { coinId, targetPrice, direction } = req.body || {};
 
   if (!coinId || !Number.isFinite(Number(targetPrice)) || !direction) {
@@ -331,13 +362,22 @@ app.post('/api/alerts', authenticate, (req, res) => {
   }
 
   ensureUserState(req.user.id);
-  const alert = {
+
+  let currentPrice = 0;
+  try {
+    const marketCoin = await getCoinById(String(coinId));
+    currentPrice = Number(marketCoin?.current_price || 0);
+  } catch (error) {
+    currentPrice = 0;
+  }
+
+  const alert = evaluateAlertStatus({
     id: uuidv4(),
     coinId: String(coinId),
     targetPrice: Number(targetPrice),
     direction: String(direction).toLowerCase(),
     createdAt: new Date().toISOString(),
-  };
+  }, currentPrice);
 
   const userAlerts = alerts.get(req.user.id) || [];
   userAlerts.push(alert);

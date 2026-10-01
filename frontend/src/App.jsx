@@ -626,9 +626,9 @@ function App() {
   const alertFeed = useMemo(() => {
     if (alerts.length) {
       return alerts.map((alert) => ({
-        title: `${alert.coinId?.toUpperCase() || 'Asset'} ${alert.direction === 'above' ? 'above' : 'below'} target`,
-        detail: `Trigger at ${formatCurrency(Number(alert.targetPrice || 0))}`,
-        tone: alert.direction === 'above' ? 'positive' : 'negative',
+        title: `${String(alert.coinId || 'Asset').toUpperCase()} ${alert.direction === 'above' ? 'above' : 'below'} target`,
+        detail: `${alert.status === 'triggered' ? 'Triggered' : 'Watching'} • ${formatCurrency(Number(alert.currentPrice || alert.targetPrice || 0))} / ${formatCurrency(Number(alert.targetPrice || 0))}`,
+        tone: alert.status === 'triggered' ? 'positive' : alert.direction === 'above' ? 'positive' : 'negative',
       }));
     }
 

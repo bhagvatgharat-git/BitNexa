@@ -94,6 +94,15 @@ test('POST /api/alerts creates an alert for an authenticated user', async () => 
   assert.equal(response.status, 201);
   assert.equal(response.body.alert.coinId, 'ethereum');
   assert.equal(response.body.alert.direction, 'above');
+
+  const listResponse = await request(app)
+    .get('/api/alerts')
+    .set('Authorization', `Bearer ${register.body.token}`);
+
+  assert.equal(listResponse.status, 200);
+  assert.ok(listResponse.body.alerts[0].status); 
+  assert.ok(typeof listResponse.body.alerts[0].currentPrice === 'number');
+  assert.ok(listResponse.body.alerts[0].currentPrice > 0);
 });
 
 test('POST /api/transactions stores and returns order history for an authenticated user', async () => {
