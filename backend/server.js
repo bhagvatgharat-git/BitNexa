@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const { v4: uuidv4 } = require('uuid');
@@ -23,6 +24,49 @@ dotenv.config();
 const app = express();
 const DEFAULT_PORT = Number(process.env.PORT || 5001);
 const JWT_SECRET = process.env.JWT_SECRET || 'bitnexa-demo-secret';
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'bitnexa';
+
+let mongoReady = false;
+let BitNexaUser = null;
+
+if (MONGODB_URI) {
+  const connectMongo = async () => {
+    try {
+      await mongoose.connect(MONGODB_URI, {
+        dbName: MONGODB_DB_NAME,
+        serverSelectionTimeoutMS: 5000,
+      });
+      mongoReady = true;
+      console.log('MongoDB connected successfully.');
+    } catch (error) {
+      console.warn('MongoDB connection failed, falling back to in-memory storage:', error.message);
+      mongoReady = false;
+    }
+  };
+
+  connectMongo();
+
+  const userSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    email: { type: String, required: true, unique: true, lowercase: true },
+    passwordHash: { type: String, required: true },
+    createdAt: { type: String, default: () => new Date().toISOString() },
+    watchlist: { type: [String], default: [] },
+    portfolio: {
+      type: {
+        positions: { type: Array, default: [] },
+        totalValue: { type: Number, default: 0 },
+      },
+      default: { positions: [], totalValue: 0 },
+    },
+    transactions: { type: Array, default: [] },
+    alerts: { type: Array, default: [] },
+  }, { timestamps: true });
+
+  BitNexaUser = mongoose.models.BitNexaUser || mongoose.model('BitNexaUser', userSchema);
+}
 
 const users = new Map();
 const watchlists = new Map();
@@ -76,11 +120,78 @@ const authenticate = (req, res, next) => {
   }
 };
 
-const ensureUserState = (userId) => {
+const ensureMemoryUserState = (userId) => {
   if (!watchlists.has(userId)) watchlists.set(userId, []);
   if (!portfolios.has(userId)) portfolios.set(userId, { positions: [], totalValue: 0 });
   if (!transactions.has(userId)) transactions.set(userId, []);
   if (!alerts.has(userId)) alerts.set(userId, []);
+};
+
+const normalizeMongoUserState = (userDoc = {}) => ({
+  watchlist: Array.isArray(userDoc.watchlist) ? userDoc.watchlist : [],
+  portfolio: {
+    positions: Array.isArray(userDoc.portfolio?.positions) ? userDoc.portfolio.positions : [],
+    totalValue: Number(userDoc.portfolio?.totalValue || 0),
+  },
+  transactions: Array.isArray(userDoc.transactions) ? userDoc.transactions : [],
+  alerts: Array.isArray(userDoc.alerts) ? userDoc.alerts : [],
+});
+
+const ensureUserState = async (userId) => {
+  if (!userId) return null;
+
+  if (!mongoReady || !BitNexaUser) {
+    ensureMemoryUserState(userId);
+    return {
+      id: userId,
+      watchlist: watchlists.get(userId) || [],
+      portfolio: portfolios.get(userId) || { positions: [], totalValue: 0 },
+      transactions: transactions.get(userId) || [],
+      alerts: alerts.get(userId) || [],
+    };
+  }
+
+  let userDoc = await BitNexaUser.findOne({ id: userId });
+  if (!userDoc) {
+    userDoc = new BitNexaUser({
+      id: userId,
+      name: 'User',
+      email: `${userId}@local.bitnexa`,
+      passwordHash: 'placeholder',
+      watchlist: [],
+      portfolio: { positions: [], totalValue: 0 },
+      transactions: [],
+      alerts: [],
+    });
+  }
+
+  if (!Array.isArray(userDoc.watchlist)) userDoc.watchlist = [];
+  if (!userDoc.portfolio || !Array.isArray(userDoc.portfolio.positions)) {
+    userDoc.portfolio = { positions: [], totalValue: 0 };
+  }
+  if (!Array.isArray(userDoc.transactions)) userDoc.transactions = [];
+  if (!Array.isArray(userDoc.alerts)) userDoc.alerts = [];
+
+  await userDoc.save();
+  return userDoc;
+};
+
+const findUserByEmail = async (email) => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+
+  if (mongoReady && BitNexaUser) {
+    return BitNexaUser.findOne({ email: normalizedEmail });
+  }
+
+  return Array.from(users.values()).find((entry) => entry.email === normalizedEmail);
+};
+
+const findUserById = async (userId) => {
+  if (mongoReady && BitNexaUser) {
+    return BitNexaUser.findOne({ id: userId });
+  }
+
+  return users.get(userId) || null;
 };
 
 const evaluatePortfolioInsights = (positions, marketMap = new Map()) => {
@@ -200,14 +311,51 @@ app.get('/api/health', (req, res) => {
  *               password:
  *                 type: string
  */
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, email, password } = req.body || {};
 
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
-  const existingUser = Array.from(users.values()).find((user) => user.email === String(email).toLowerCase());
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (mongoReady && BitNexaUser) {
+    const existingUser = await findUserByEmail(normalizedEmail);
+    if (existingUser) {
+      return res.status(409).json({ error: 'This email is already registered.' });
+    }
+
+    const user = {
+      id: uuidv4(),
+      name: String(name).trim(),
+      email: normalizedEmail,
+      passwordHash: hashPassword(password),
+      createdAt: new Date().toISOString(),
+    };
+
+    const savedUser = await BitNexaUser.create({
+      ...user,
+      watchlist: [],
+      portfolio: { positions: [], totalValue: 0 },
+      transactions: [],
+      alerts: [],
+    });
+
+    users.set(user.id, user);
+    await ensureUserState(user.id);
+
+    return res.status(201).json({
+      message: 'User registered successfully.',
+      token: createToken(savedUser.toObject ? savedUser.toObject() : user),
+      user: {
+        id: savedUser.id,
+        name: savedUser.name,
+        email: savedUser.email,
+      },
+    });
+  }
+
+  const existingUser = Array.from(users.values()).find((user) => user.email === normalizedEmail);
   if (existingUser) {
     return res.status(409).json({ error: 'This email is already registered.' });
   }
@@ -215,13 +363,13 @@ app.post('/api/auth/register', (req, res) => {
   const user = {
     id: uuidv4(),
     name: String(name).trim(),
-    email: String(email).trim().toLowerCase(),
+    email: normalizedEmail,
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString(),
   };
 
   users.set(user.id, user);
-  ensureUserState(user.id);
+  ensureMemoryUserState(user.id);
 
   return res.status(201).json({
     message: 'User registered successfully.',
@@ -240,16 +388,30 @@ app.post('/api/auth/register', (req, res) => {
  *   post:
  *     summary: Login a user
  */
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required.' });
   }
 
-  const user = Array.from(users.values()).find((entry) => entry.email === String(email).trim().toLowerCase());
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const user = mongoReady && BitNexaUser
+    ? await findUserByEmail(normalizedEmail)
+    : Array.from(users.values()).find((entry) => entry.email === normalizedEmail);
+
   if (!user || user.passwordHash !== hashPassword(password)) {
     return res.status(401).json({ error: 'Invalid email or password.' });
+  }
+
+  if (mongoReady && BitNexaUser && !users.has(user.id)) {
+    users.set(user.id, {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      passwordHash: user.passwordHash,
+      createdAt: user.createdAt,
+    });
   }
 
   return res.json({
@@ -263,8 +425,8 @@ app.post('/api/auth/login', (req, res) => {
   });
 });
 
-app.get('/api/profile', authenticate, (req, res) => {
-  const user = users.get(req.user.id);
+app.get('/api/profile', authenticate, async (req, res) => {
+  const user = mongoReady && BitNexaUser ? await findUserById(req.user.id) : users.get(req.user.id);
 
   if (!user) {
     return res.status(404).json({ error: 'User not found.' });
@@ -279,30 +441,57 @@ app.get('/api/profile', authenticate, (req, res) => {
   });
 });
 
-app.get('/api/watchlist', authenticate, (req, res) => {
-  ensureUserState(req.user.id);
+app.get('/api/watchlist', authenticate, async (req, res) => {
+  await ensureUserState(req.user.id);
+
+  if (mongoReady && BitNexaUser) {
+    const userDoc = await findUserById(req.user.id);
+    return res.json({ coinIds: Array.isArray(userDoc?.watchlist) ? userDoc.watchlist : [] });
+  }
+
   return res.json({ coinIds: watchlists.get(req.user.id) || [] });
 });
 
-app.post('/api/watchlist', authenticate, (req, res) => {
+app.post('/api/watchlist', authenticate, async (req, res) => {
   const coinIds = Array.isArray(req.body?.coinIds) ? req.body.coinIds.map(String) : [];
   const uniqueIds = [...new Set(coinIds.filter(Boolean))].slice(0, 50);
 
-  ensureUserState(req.user.id);
+  if (mongoReady && BitNexaUser) {
+    const userDoc = await ensureUserState(req.user.id);
+    userDoc.watchlist = uniqueIds;
+    await userDoc.save();
+    return res.json({ coinIds: uniqueIds, message: 'Watchlist updated.' });
+  }
+
+  ensureMemoryUserState(req.user.id);
   watchlists.set(req.user.id, uniqueIds);
 
   return res.json({ coinIds: uniqueIds, message: 'Watchlist updated.' });
 });
 
-app.get('/api/portfolio', authenticate, (req, res) => {
-  ensureUserState(req.user.id);
+app.get('/api/portfolio', authenticate, async (req, res) => {
+  await ensureUserState(req.user.id);
+
+  if (mongoReady && BitNexaUser) {
+    const userDoc = await findUserById(req.user.id);
+    return res.json(userDoc?.portfolio || { positions: [], totalValue: 0 });
+  }
+
   return res.json(portfolios.get(req.user.id) || { positions: [], totalValue: 0 });
 });
 
 app.get('/api/portfolio/summary', authenticate, async (req, res) => {
   try {
-    ensureUserState(req.user.id);
-    const userPortfolio = portfolios.get(req.user.id) || { positions: [], totalValue: 0 };
+    let userPortfolio = { positions: [], totalValue: 0 };
+
+    if (mongoReady && BitNexaUser) {
+      const userDoc = await ensureUserState(req.user.id);
+      userPortfolio = userDoc?.portfolio || { positions: [], totalValue: 0 };
+    } else {
+      ensureMemoryUserState(req.user.id);
+      userPortfolio = portfolios.get(req.user.id) || { positions: [], totalValue: 0 };
+    }
+
     const positions = Array.isArray(userPortfolio.positions) ? userPortfolio.positions : [];
 
     if (!positions.length) {
@@ -359,8 +548,16 @@ app.get('/api/portfolio/summary', authenticate, async (req, res) => {
 
 app.get('/api/portfolio/insights', authenticate, async (req, res) => {
   try {
-    ensureUserState(req.user.id);
-    const userPortfolio = portfolios.get(req.user.id) || { positions: [], totalValue: 0 };
+    let userPortfolio = { positions: [], totalValue: 0 };
+
+    if (mongoReady && BitNexaUser) {
+      const userDoc = await ensureUserState(req.user.id);
+      userPortfolio = userDoc?.portfolio || { positions: [], totalValue: 0 };
+    } else {
+      ensureMemoryUserState(req.user.id);
+      userPortfolio = portfolios.get(req.user.id) || { positions: [], totalValue: 0 };
+    }
+
     const positions = Array.isArray(userPortfolio.positions) ? userPortfolio.positions : [];
     const ids = [...new Set(positions.map((position) => String(position.coinId || '').trim()).filter(Boolean))];
     const marketData = ids.length ? await getMarketData(ids) : [];
@@ -373,14 +570,41 @@ app.get('/api/portfolio/insights', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/portfolio', authenticate, (req, res) => {
+app.post('/api/portfolio', authenticate, async (req, res) => {
   const { coinId, symbol, amount, averagePrice, allocation } = req.body || {};
 
   if (!coinId || !symbol || !Number.isFinite(Number(amount)) || !Number.isFinite(Number(averagePrice))) {
     return res.status(400).json({ error: 'coinId, symbol, amount, and averagePrice are required.' });
   }
 
-  ensureUserState(req.user.id);
+  if (mongoReady && BitNexaUser) {
+    const userDoc = await ensureUserState(req.user.id);
+    const existingPortfolio = userDoc?.portfolio || { positions: [], totalValue: 0 };
+    const existingPosition = existingPortfolio.positions.find((position) => position.coinId === coinId);
+    const normalizedAmount = Number(amount);
+    const normalizedAveragePrice = Number(averagePrice);
+
+    if (existingPosition) {
+      existingPosition.amount = Number(existingPosition.amount) + normalizedAmount;
+      existingPosition.averagePrice = Number(((existingPosition.averagePrice * (existingPosition.amount - normalizedAmount)) + (normalizedAveragePrice * normalizedAmount)) / existingPosition.amount).toFixed(2);
+    } else {
+      existingPortfolio.positions.push({
+        coinId,
+        symbol: String(symbol).toUpperCase(),
+        amount: normalizedAmount,
+        averagePrice: normalizedAveragePrice,
+        allocation: Number(allocation || 0),
+      });
+    }
+
+    existingPortfolio.totalValue = existingPortfolio.positions.reduce((sum, position) => sum + (position.amount * position.averagePrice), 0);
+    userDoc.portfolio = existingPortfolio;
+    await userDoc.save();
+
+    return res.status(201).json({ message: 'Portfolio updated.', portfolio: existingPortfolio });
+  }
+
+  ensureMemoryUserState(req.user.id);
   const existingPortfolio = portfolios.get(req.user.id) || { positions: [], totalValue: 0 };
   const existingPosition = existingPortfolio.positions.find((position) => position.coinId === coinId);
   const normalizedAmount = Number(amount);
@@ -410,7 +634,22 @@ app.post('/api/portfolio', authenticate, (req, res) => {
 
 app.get('/api/alerts', authenticate, async (req, res) => {
   try {
-    ensureUserState(req.user.id);
+    if (mongoReady && BitNexaUser) {
+      const userDoc = await ensureUserState(req.user.id);
+      const userAlerts = Array.isArray(userDoc?.alerts) ? userDoc.alerts : [];
+      const ids = [...new Set(userAlerts.map((alert) => String(alert.coinId || '').trim()).filter(Boolean))];
+      const marketData = ids.length ? await getMarketData(ids) : [];
+      const marketMap = new Map((marketData || []).map((coin) => [String(coin.id), Number(coin.current_price || 0)]));
+      const evaluatedAlerts = userAlerts.map((alert) => {
+        const currentPrice = marketMap.get(String(alert.coinId)) ?? Number(alert.currentPrice || 0);
+        return evaluateAlertStatus(alert, currentPrice);
+      });
+      userDoc.alerts = evaluatedAlerts;
+      await userDoc.save();
+      return res.json({ alerts: evaluatedAlerts });
+    }
+
+    ensureMemoryUserState(req.user.id);
     const userAlerts = alerts.get(req.user.id) || [];
     const ids = [...new Set(userAlerts.map((alert) => String(alert.coinId || '').trim()).filter(Boolean))];
     const marketData = ids.length ? await getMarketData(ids) : [];
@@ -436,8 +675,6 @@ app.post('/api/alerts', authenticate, async (req, res) => {
     return res.status(400).json({ error: 'coinId, targetPrice, and direction are required.' });
   }
 
-  ensureUserState(req.user.id);
-
   let currentPrice = 0;
   try {
     const marketCoin = await getCoinById(String(coinId));
@@ -454,6 +691,17 @@ app.post('/api/alerts', authenticate, async (req, res) => {
     createdAt: new Date().toISOString(),
   }, currentPrice);
 
+  if (mongoReady && BitNexaUser) {
+    const userDoc = await ensureUserState(req.user.id);
+    const userAlerts = Array.isArray(userDoc.alerts) ? userDoc.alerts : [];
+    userAlerts.push(alert);
+    userDoc.alerts = userAlerts;
+    await userDoc.save();
+    return res.status(201).json({ message: 'Alert created.', alert });
+  }
+
+  ensureMemoryUserState(req.user.id);
+
   const userAlerts = alerts.get(req.user.id) || [];
   userAlerts.push(alert);
   alerts.set(req.user.id, userAlerts);
@@ -461,12 +709,17 @@ app.post('/api/alerts', authenticate, async (req, res) => {
   return res.status(201).json({ message: 'Alert created.', alert });
 });
 
-app.get('/api/transactions', authenticate, (req, res) => {
-  ensureUserState(req.user.id);
+app.get('/api/transactions', authenticate, async (req, res) => {
+  if (mongoReady && BitNexaUser) {
+    const userDoc = await ensureUserState(req.user.id);
+    return res.json({ transactions: userDoc?.transactions || [] });
+  }
+
+  ensureMemoryUserState(req.user.id);
   return res.json({ transactions: transactions.get(req.user.id) || [] });
 });
 
-app.post('/api/transactions', authenticate, (req, res) => {
+app.post('/api/transactions', authenticate, async (req, res) => {
   const { symbol, side = 'buy', amount, quote, type = 'market', status = 'filled', price } = req.body || {};
   const symbolKey = String(symbol || '').trim();
   const amountValue = Number(amount);
@@ -479,7 +732,6 @@ app.post('/api/transactions', authenticate, (req, res) => {
     return res.status(400).json({ error: 'Trade amount must be greater than zero.' });
   }
 
-  ensureUserState(req.user.id);
   const transaction = {
     id: `txn_${Date.now()}`,
     symbol: symbolKey.toUpperCase(),
@@ -492,6 +744,16 @@ app.post('/api/transactions', authenticate, (req, res) => {
     timestamp: new Date().toISOString(),
   };
 
+  if (mongoReady && BitNexaUser) {
+    const userDoc = await ensureUserState(req.user.id);
+    const userTransactions = Array.isArray(userDoc.transactions) ? userDoc.transactions : [];
+    userTransactions.unshift(transaction);
+    userDoc.transactions = userTransactions.slice(0, 50);
+    await userDoc.save();
+    return res.status(201).json({ message: 'Transaction recorded.', transaction });
+  }
+
+  ensureMemoryUserState(req.user.id);
   const userTransactions = transactions.get(req.user.id) || [];
   userTransactions.unshift(transaction);
   transactions.set(req.user.id, userTransactions.slice(0, 50));
