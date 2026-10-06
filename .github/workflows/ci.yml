@@ -1,0 +1,33 @@
+name: BitNexa CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install backend dependencies
+        run: npm install --prefix backend
+
+      - name: Run backend tests
+        run: npm --prefix backend test
+
+      - name: Install frontend dependencies
+        run: npm install --prefix frontend
+
+      - name: Build frontend
+        run: npm --prefix frontend run build
