@@ -133,20 +133,26 @@ const apiLimiter = rateLimit({
 
 const path = require('path');
 
-const swaggerSpec = swaggerJsdoc({
-  definition: {
-    openapi: '3.0.0',
-    info: {
-      title: 'BitNexa API',
-      version: '1.0.0',
-      description: 'BitNexa market data, auth, watchlist, portfolio, and alerts API.',
+let swaggerSpec = null;
+try {
+  swaggerSpec = swaggerJsdoc({
+    definition: {
+      openapi: '3.0.0',
+      info: {
+        title: 'BitNexa API',
+        version: '1.0.0',
+        description: 'BitNexa market data, auth, watchlist, portfolio, and alerts API.',
+      },
+      servers: [
+        { url: 'http://localhost:5001', description: 'Local development server' },
+      ],
     },
-    servers: [
-      { url: 'http://localhost:5001', description: 'Local development server' },
-    ],
-  },
-  apis: [path.join(__dirname, 'server.js')],
-});
+    apis: [path.join(__dirname, 'server.js')],
+  });
+} catch (err) {
+  console.warn('Swagger initialization skipped:', err?.message || err);
+}
+
 
 const hashPassword = (password) => crypto.createHash('sha256').update(String(password)).digest('hex');
 
@@ -342,7 +348,14 @@ app.use((req, res, next) => {
 });
 
 app.use('/api/', apiLimiter);
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+if (swaggerSpec) {
+  try {
+    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  } catch (err) {
+    console.warn('Swagger UI binding skipped:', err?.message || err);
+  }
+}
+
 
 /**
  * @openapi
