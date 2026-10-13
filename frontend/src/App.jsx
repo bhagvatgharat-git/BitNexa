@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -12,8 +12,10 @@ import {
   ArcElement,
 } from 'chart.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
-import { Line, Bar, Doughnut } from 'react-chartjs-2';
+import { Line, Doughnut } from 'react-chartjs-2';
 import marketApi from './services/marketApi';
+import PriceChart from './components/PriceChart';
+import { closePaperPosition, createDemoWallet, DEMO_WALLET_STORAGE_KEY, executePaperTrade, STARTING_DEMO_CASH } from './services/paperTrading';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler, ArcElement, zoomPlugin);
 
@@ -74,13 +76,6 @@ const getSafeCoinImage = (coin) => {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 };
 
-const formatCurrency = (value) =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: value >= 1000 ? 0 : 2,
-  }).format(value ?? 0);
-
 const formatCompact = (value) =>
   new Intl.NumberFormat('en-US', {
     notation: 'compact',
@@ -88,6 +83,16 @@ const formatCompact = (value) =>
   }).format(value ?? 0);
 
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
+const DISPLAY_CURRENCIES = [
+  { code: 'usd', label: 'USD' },
+  { code: 'eur', label: 'EUR' },
+  { code: 'gbp', label: 'GBP' },
+  { code: 'inr', label: 'INR' },
+  { code: 'jpy', label: 'JPY' },
+  { code: 'cad', label: 'CAD' },
+  { code: 'aud', label: 'AUD' },
+];
+const INTRADAY_INTERVALS = ['15s', '20s', '1m', '2m', '3m', '5m'];
 
 function App() {
   const [coins, setCoins] = useState([]);
@@ -98,29 +103,53 @@ function App() {
   const [showMoreCoins, setShowMoreCoins] = useState(8);
   const [detailExpanded, setDetailExpanded] = useState(true);
   const [chartMode, setChartMode] = useState('price');
+  const [chartStyle, setChartStyle] = useState('line');
+  const [coinWorkspaceFullscreen, setCoinWorkspaceFullscreen] = useState(false);
   const [sortBy, setSortBy] = useState('market_cap');
   const [quickFilter, setQuickFilter] = useState('all');
-  const [selectedNav, setSelectedNav] = useState('Markets');
+  const [selectedNav, setSelectedNav] = useState('Dashboard');
+  const [lastNonMarketNav, setLastNonMarketNav] = useState('Dashboard');
   const [marketTab, setMarketTab] = useState('overview');
+  const [compareCoinIds, setCompareCoinIds] = useState(['bitcoin', 'ethereum', '']);
+  const [currency, setCurrency] = useState('usd');
+  const [currencyRates, setCurrencyRates] = useState({ usd: 1 });
+  const [currencyRatesLoaded, setCurrencyRatesLoaded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [chartData, setChartData] = useState({ labels: [], datasets: [] });
-  const [candleChartData, setCandleChartData] = useState({ labels: [], datasets: [] });
+  const [chartData, setChartData] = useState({ labels: [], datasets: [], source: 'loading' });
+  const [candleChartData, setCandleChartData] = useState({ labels: [], datasets: [], source: 'loading' });
+  const [marketDataSource, setMarketDataSource] = useState('loading');
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [orderSide, setOrderSide] = useState('buy');
-  const [orderType, setOrderType] = useState('market');
+  const [tradeMode, setTradeMode] = useState('demo');
+  const [binanceStatus, setBinanceStatus] = useState({
+    exchange: 'Binance Spot',
+    environment: 'testnet',
+    credentialsConfigured: false,
+    liveOrdersEnabled: false,
+  });
+  const [liveBalances, setLiveBalances] = useState([]);
+  const [liveTrades, setLiveTrades] = useState([]);
+  const [liveAccountError, setLiveAccountError] = useState('');
   const [amount, setAmount] = useState('0.5');
+  const [paperWallet, setPaperWallet] = useState(() => {
+    if (typeof window === 'undefined') return createDemoWallet();
+    try {
+      const savedWallet = JSON.parse(localStorage.getItem(DEMO_WALLET_STORAGE_KEY) || 'null');
+      if (savedWallet && Number.isFinite(Number(savedWallet.cash)) && Array.isArray(savedWallet.positions) && Array.isArray(savedWallet.trades)) {
+        return savedWallet;
+      }
+    } catch {
+      return createDemoWallet();
+    }
+    return createDemoWallet();
+  });
   const [theme, setTheme] = useState('dark');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [trending, setTrending] = useState([]);
   const [toasts, setToasts] = useState([
     { id: 1, type: 'success', text: 'Market feed connected successfully.' },
-  ]);
-  const [tradeHistory, setTradeHistory] = useState([
-    { id: 'ord_1', symbol: 'BTC', side: 'buy', amount: 0.18, quote: 12000.35, timestamp: 'just now' },
-    { id: 'ord_2', symbol: 'ETH', side: 'sell', amount: 1.4, quote: 4800.2, timestamp: '8 min ago' },
-    { id: 'ord_3', symbol: 'SOL', side: 'buy', amount: 22, quote: 3381.88, timestamp: '22 min ago' },
   ]);
   const [watchlist, setWatchlist] = useState(() => {
     if (typeof window === 'undefined') return [];
@@ -146,6 +175,20 @@ function App() {
   const [authMode, setAuthMode] = useState('login');
   const [authForm, setAuthForm] = useState({ name: '', email: 'demo@example.com', password: 'Password123!' });
   const [authError, setAuthError] = useState('');
+  const [adminToken, setAdminToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return sessionStorage.getItem('bitnexa-admin-token') || '';
+  });
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminPanel, setAdminPanel] = useState(false);
+  const [adminForm, setAdminForm] = useState({ email: '', password: '' });
+  const [adminError, setAdminError] = useState('');
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminSelectedUser, setAdminSelectedUser] = useState(null);
+  const [brandClickCount, setBrandClickCount] = useState(0);
+  const brandClickTimerRef = { current: null };
   const [portfolio, setPortfolio] = useState({ positions: [], totalValue: 0 });
   const [portfolioSummary, setPortfolioSummary] = useState({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
   const [portfolioInsights, setPortfolioInsights] = useState({
@@ -159,6 +202,81 @@ function App() {
   const [alerts, setAlerts] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [newAlert, setNewAlert] = useState({ coinId: 'bitcoin', targetPrice: '', direction: 'above' });
+  const currencyFormatter = useMemo(() => new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    maximumFractionDigits: currency === 'jpy' ? 0 : 2,
+  }), [currency]);
+  const formatCurrency = (value) => currencyFormatter.format(
+    (Number(value) || 0) * (currencyRates[currency] || 1)
+  );
+  const chartCoinSymbol = coins.find((coin) => coin.id === selectedId)?.symbol?.toUpperCase();
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    marketApi.getCurrencyRates()
+      .then((response) => {
+        if (!isCurrent) return;
+        if (response?.rates?.usd) {
+          setCurrencyRates(response.rates);
+          const savedCurrency = localStorage.getItem('bitnexa-currency');
+          if (savedCurrency && response.rates[savedCurrency]) setCurrency(savedCurrency);
+        }
+        setCurrencyRatesLoaded(true);
+      })
+      .catch((error) => {
+        console.error('Unable to load currency rates:', error);
+        if (isCurrent) setCurrencyRatesLoaded(true);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (currencyRatesLoaded) localStorage.setItem('bitnexa-currency', currency);
+  }, [currency, currencyRatesLoaded]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    marketApi.getBinanceStatus()
+      .then((status) => {
+        if (isCurrent) setBinanceStatus(status);
+      })
+      .catch((error) => console.error('Unable to load Binance status:', error));
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (tradeMode !== 'live' || !token || !binanceStatus.liveOrdersEnabled) {
+      setLiveBalances([]);
+      return undefined;
+    }
+
+    let isCurrent = true;
+    setLiveAccountError('');
+    marketApi.getBinanceAccount(token)
+      .then((response) => {
+        if (isCurrent) setLiveBalances(response.balances || []);
+      })
+      .catch((error) => {
+        if (isCurrent) setLiveAccountError(error.message || 'Unable to load Binance balances.');
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [binanceStatus.liveOrdersEnabled, token, tradeMode]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(DEMO_WALLET_STORAGE_KEY, JSON.stringify(paperWallet));
+    }
+  }, [paperWallet]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -194,12 +312,23 @@ function App() {
     setToasts((current) => [...current, value]);
   };
 
+  const openCoinWorkspace = (coinId) => {
+    setSelectedId(coinId);
+    // Remember which page the user was on before jumping into fullscreen chart
+    setLastNonMarketNav((prev) => (prev !== 'Markets' ? prev : 'Dashboard'));
+    setSelectedNav('Markets');
+    setMarketTab('overview');
+    setDetailExpanded(true);
+    setCoinWorkspaceFullscreen(true);
+  };
+
   useEffect(() => {
     const loadMarket = async () => {
       try {
         setLoading(true);
         const data = await marketApi.getMarket(TOP_50_IDS);
         setCoins(data);
+        setMarketDataSource(data.length && data.every((coin) => coin.data_source === 'live') ? 'live' : 'fallback');
         setError('');
 
         if (data.length && !data.some((coin) => coin.id === selectedId)) {
@@ -248,15 +377,22 @@ function App() {
   }, [autoRefresh, selectedId]);
 
   useEffect(() => {
+    let isCurrent = true;
+    const isIntraday = INTRADAY_INTERVALS.includes(range);
+
     const loadChart = async () => {
       if (!selectedId) return;
 
-      const chartDays = range === 'max' ? 3650 : Number(range);
+      const chartDays = range === 'max' ? 'max' : Number(range);
 
       try {
         const data = await marketApi.getChart(selectedId, chartDays);
+        if (!isCurrent) return;
         setChartData({
           labels: data.labels,
+          times: data.times || [],
+          prices: data.prices || [],
+          source: data.source || 'fallback',
           datasets: [
             {
               label: `${selectedId.toUpperCase()} Price`,
@@ -270,7 +406,7 @@ function App() {
           ],
         });
       } catch (err) {
-        setError(err.message || 'Unable to load chart data.');
+        if (isCurrent) setError(err.message || 'Unable to load chart data.');
       }
     };
 
@@ -279,10 +415,13 @@ function App() {
 
       try {
         const data = await marketApi.getOhlc(selectedId, range);
+        if (!isCurrent) return;
         const candles = data.candles || [];
 
         setCandleChartData({
           labels: candles.map((item) => item.label),
+          candles: candles,
+          source: data.source || 'fallback',
           datasets: [
             {
               label: 'Candles',
@@ -296,13 +435,76 @@ function App() {
           ],
         });
       } catch (err) {
-        setError(err.message || 'Unable to load candle data.');
+        if (isCurrent) setError(err.message || 'Unable to load candle data.');
       }
     };
 
-    loadChart();
-    loadCandles();
-  }, [selectedId, range]);
+    const loadIntradayCandles = async () => {
+      if (!selectedId || !chartCoinSymbol) return;
+
+      try {
+        const data = await marketApi.getBinanceKlines(`${chartCoinSymbol}USDT`, range);
+        if (!isCurrent) return;
+        const candles = data.candles || [];
+        const labels = candles.map((item) => item.label);
+        const prices = candles.map((item) => Number(item.close));
+
+        setChartData({
+          labels,
+          times: candles.map((item) => Math.floor(new Date(item.time).getTime() / 1000)),
+          prices,
+          source: data.source || 'binance',
+          datasets: [{
+            label: `${chartCoinSymbol} Price`,
+            data: prices,
+            borderColor: '#5ec4ff',
+            backgroundColor: 'rgba(94, 196, 255, 0.18)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.35,
+          }],
+        });
+        setCandleChartData({
+          labels,
+          candles,
+          source: data.source || 'binance',
+          datasets: [{
+            label: 'Candles',
+            data: candles.map((item) => item.range),
+            backgroundColor: candles.map((item) => (
+              item.direction === 'up' ? 'rgba(54, 211, 153, 0.8)' : 'rgba(255, 100, 124, 0.78)'
+            )),
+            borderRadius: 4,
+            borderSkipped: false,
+          }],
+        });
+      } catch (err) {
+        if (isCurrent) {
+          setChartData((current) => ({ ...current, source: 'error' }));
+          setCandleChartData((current) => ({ ...current, source: 'error' }));
+          setError(err.message || 'Unable to load Binance chart candles.');
+        }
+      }
+    };
+
+    const refreshCharts = () => {
+      if (isIntraday) {
+        loadIntradayCandles();
+      } else {
+        loadChart();
+        loadCandles();
+      }
+    };
+
+    refreshCharts();
+    if (!autoRefresh) return () => { isCurrent = false; };
+
+    const interval = setInterval(refreshCharts, isIntraday ? 5000 : 60000);
+    return () => {
+      isCurrent = false;
+      clearInterval(interval);
+    };
+  }, [autoRefresh, chartCoinSymbol, selectedId, range]);
 
   const searchSuggestions = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -345,17 +547,31 @@ function App() {
     return 'market';
   };
 
-  const marketSegmentOptions = [
-    { key: 'all', label: 'All' },
-    { key: 'gainers', label: 'Gainers' },
-    { key: 'losers', label: 'Losers' },
-    { key: 'layer1', label: 'Layer 1' },
-    { key: 'defi', label: 'DeFi' },
-    { key: 'stable', label: 'Stablecoins' },
-    { key: 'meme', label: 'Meme' },
-    { key: 'ai', label: 'AI & Infra' },
-    { key: 'watchlist', label: 'Watchlist' },
-  ];
+  const marketFilterCounts = useMemo(() => {
+    return {
+      all: coins.length,
+      gainers: coins.filter((coin) => (Number(coin.price_change_percentage_24h) || 0) >= 0).length,
+      losers: coins.filter((coin) => (Number(coin.price_change_percentage_24h) || 0) < 0).length,
+      layer1: coins.filter((coin) => getCoinSegment(coin) === 'layer1').length,
+      defi: coins.filter((coin) => getCoinSegment(coin) === 'defi').length,
+      stable: coins.filter((coin) => getCoinSegment(coin) === 'stable').length,
+      meme: coins.filter((coin) => getCoinSegment(coin) === 'meme').length,
+      ai: coins.filter((coin) => getCoinSegment(coin) === 'ai').length,
+      watchlist: coins.filter((coin) => watchlist.includes(coin.id)).length,
+    };
+  }, [coins, watchlist]);
+
+  const marketSegmentOptions = useMemo(() => [
+    { key: 'all', label: 'All', icon: '🌐', count: marketFilterCounts.all },
+    { key: 'gainers', label: 'Gainers', icon: '↗', count: marketFilterCounts.gainers },
+    { key: 'losers', label: 'Losers', icon: '↘', count: marketFilterCounts.losers },
+    { key: 'layer1', label: 'Layer 1', icon: '⬡', count: marketFilterCounts.layer1 },
+    { key: 'defi', label: 'DeFi', icon: '⚡', count: marketFilterCounts.defi },
+    { key: 'stable', label: 'Stablecoins', icon: '🛡️', count: marketFilterCounts.stable },
+    { key: 'meme', label: 'Meme', icon: '🚀', count: marketFilterCounts.meme },
+    { key: 'ai', label: 'AI & Infra', icon: '🧠', count: marketFilterCounts.ai },
+    { key: 'watchlist', label: 'Watchlist', icon: '★', count: marketFilterCounts.watchlist },
+  ], [marketFilterCounts]);
 
   const filteredCoins = useMemo(() => {
     const baseList = coins.filter(
@@ -386,17 +602,25 @@ function App() {
   }, [coins, query, quickFilter, watchlist]);
 
   const marketSegmentSummary = useMemo(() => {
-    const segments = ['layer1', 'defi', 'stable', 'meme', 'ai'];
+    const segments = [
+      { key: 'layer1', label: 'Layer 1', icon: '⬡', color: '#38bdf8' },
+      { key: 'defi', label: 'DeFi', icon: '⚡', color: '#a78bfa' },
+      { key: 'stable', label: 'Stablecoins', icon: '🛡️', color: '#34d399' },
+      { key: 'meme', label: 'Meme', icon: '🚀', color: '#fbbf24' },
+      { key: 'ai', label: 'AI & Infra', icon: '🧠', color: '#22d3ee' },
+    ];
 
-    return segments.map((segment) => {
-      const segmentCoins = coins.filter((coin) => getCoinSegment(coin) === segment);
+    return segments.map((seg) => {
+      const segmentCoins = coins.filter((coin) => getCoinSegment(coin) === seg.key);
       const averageChange = segmentCoins.length
         ? segmentCoins.reduce((sum, coin) => sum + (Number(coin.price_change_percentage_24h) || 0), 0) / segmentCoins.length
         : 0;
 
       return {
-        key: segment,
-        label: segment === 'layer1' ? 'Layer 1' : segment === 'defi' ? 'DeFi' : segment === 'stable' ? 'Stablecoins' : segment === 'meme' ? 'Meme' : 'AI & Infra',
+        key: seg.key,
+        label: seg.label,
+        icon: seg.icon,
+        color: seg.color,
         count: segmentCoins.length,
         averageChange,
       };
@@ -427,8 +651,31 @@ function App() {
   const selectedCoin = coins.find((coin) => coin.id === selectedId) || coins[0];
   const tradeCoin = coins.find((coin) => coin.id === tradeCoinId) || selectedCoin || coins[0];
   const watchlistCoins = coins.filter((coin) => watchlist.includes(coin.id));
+  const comparedCoins = compareCoinIds
+    .map((coinId) => coins.find((coin) => coin.id === coinId))
+    .filter(Boolean);
+
+  const comparisonMetrics = [
+    { label: 'Price', value: (coin) => formatCurrency(coin.current_price) },
+    {
+      label: '24h change',
+      value: (coin) => formatPercent(coin.price_change_percentage_24h),
+      className: (coin) => Number(coin.price_change_percentage_24h) >= 0 ? 'positive' : 'negative',
+    },
+    { label: 'Market cap', value: (coin) => formatCompact(coin.market_cap) },
+    { label: '24h volume', value: (coin) => formatCompact(coin.total_volume) },
+    { label: '24h high / low', value: (coin) => `${formatCurrency(coin.high_24h)} / ${formatCurrency(coin.low_24h)}` },
+    { label: 'Circulating supply', value: (coin) => formatCompact(coin.circulating_supply) },
+    { label: 'Market rank', value: (coin) => coin.market_cap_rank ? `#${coin.market_cap_rank}` : '—' },
+  ];
 
   const rangeOptions = [
+    { value: '15s', label: '15s' },
+    { value: '20s', label: '20s' },
+    { value: '1m', label: '1m' },
+    { value: '2m', label: '2m' },
+    { value: '3m', label: '3m' },
+    { value: '5m', label: '5m' },
     { value: 1, label: '1D' },
     { value: 7, label: '7D' },
     { value: 30, label: '30D' },
@@ -600,7 +847,7 @@ function App() {
   }, [selectedCoin]);
 
   const portfolioBreakdown = useMemo(() => {
-    if (portfolio.positions.length) {
+    if (portfolio.positions && portfolio.positions.length) {
       const totalValue = portfolio.positions.reduce((sum, position) => {
         const currentPrice = Number(coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice || 0);
         return sum + (Number(position.amount || 0) * currentPrice);
@@ -621,15 +868,47 @@ function App() {
       });
     }
 
-    const weights = [
-      { label: 'BTC', weight: 42, value: '$52.7K', color: 'var(--primary)' },
-      { label: 'ETH', weight: 31, value: '$39.1K', color: 'var(--primary-strong)' },
-      { label: 'SOL', weight: 18, value: '$22.6K', color: 'var(--success)' },
-      { label: 'Stable', weight: 9, value: '$11.3K', color: 'var(--warning)' },
-    ];
+    const palette = ['#38bdf8', '#818cf8', '#34d399', '#fbbf24', '#f43f5e', '#a78bfa'];
+    const totalCryptoValue = paperWallet.positions.reduce((sum, pos) => {
+      const coin = coins.find((c) => c.id === pos.coinId);
+      const price = Number(coin?.current_price || pos.averagePrice || 0);
+      return sum + (Number(pos.amount || 0) * price);
+    }, 0);
+    const totalEquity = totalCryptoValue + Number(paperWallet.cash || 0);
 
-    return weights;
-  }, [coins, portfolio]);
+    if (paperWallet.positions.length > 0) {
+      const items = paperWallet.positions.map((pos, index) => {
+        const coin = coins.find((c) => c.id === pos.coinId);
+        const price = Number(coin?.current_price || pos.averagePrice || 0);
+        const val = Number(pos.amount || 0) * price;
+        const weight = totalEquity > 0 ? (val / totalEquity) * 100 : 0;
+        return {
+          label: pos.symbol?.toUpperCase() || pos.coinId?.toUpperCase(),
+          weight: Number(weight.toFixed(1)),
+          value: formatCurrency(val),
+          color: palette[index % palette.length],
+          coinId: pos.coinId,
+          amount: Number(pos.amount),
+        };
+      });
+
+      if (paperWallet.cash > 0) {
+        const cashWeight = totalEquity > 0 ? (paperWallet.cash / totalEquity) * 100 : 0;
+        items.push({
+          label: 'Demo Cash',
+          weight: Number(cashWeight.toFixed(1)),
+          value: formatCurrency(paperWallet.cash),
+          color: '#10b981',
+          isCash: true,
+        });
+      }
+      return items;
+    }
+
+    return [
+      { label: 'Available Demo Cash', weight: 100, value: formatCurrency(paperWallet.cash || STARTING_DEMO_CASH), color: '#38bdf8', isCash: true },
+    ];
+  }, [coins, currency, currencyRates, paperWallet, portfolio]);
 
   const alertFeed = useMemo(() => {
     if (alerts.length) {
@@ -641,11 +920,11 @@ function App() {
     }
 
     return [
-      { title: 'BTC breakout', detail: 'Above 20-day trend line with rising volume.', tone: 'positive' },
-      { title: 'ETH watch', detail: 'Range squeeze building near key resistance.', tone: 'neutral' },
-      { title: 'SOL risk', detail: 'Pullback signal needs confirmation before entry.', tone: 'negative' },
+      { title: 'Your BTC breakout', detail: 'Above your 20-day trend line with rising volume.', tone: 'positive' },
+      { title: 'Your ETH watch', detail: 'Range squeeze building near your key resistance level.', tone: 'neutral' },
+      { title: 'Your SOL risk', detail: 'Pullback signal needs confirmation before adding more size.', tone: 'negative' },
     ];
-  }, [alerts]);
+  }, [alerts, currency, currencyRates]);
 
   const orderBook = useMemo(() => ({
     asks: [
@@ -703,6 +982,105 @@ function App() {
   ], []);
 
   const orderTotal = tradeCoin ? (Number(amount) || 0) * tradeCoin.current_price : 0;
+  const selectedPaperPosition = paperWallet.positions.find((position) => position.coinId === tradeCoin?.id);
+  const paperOpenValue = paperWallet.positions.reduce((total, position) => {
+    const marketPrice = coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice;
+    return total + (Number(position.amount) || 0) * (Number(marketPrice) || 0);
+  }, 0);
+  const estimatedFee = Number((orderTotal * 0.001).toFixed(2));
+  const estimatedSettlement = tradeMode === 'demo'
+    ? orderSide === 'buy' ? orderTotal + estimatedFee : orderTotal - estimatedFee
+    : orderTotal;
+
+  const effectivePortfolioSummary = useMemo(() => {
+    if (portfolio.positions && portfolio.positions.length > 0) {
+      return portfolioSummary;
+    }
+
+    const totalInvested = paperWallet.positions.reduce((sum, pos) => {
+      return sum + (Number(pos.amount || 0) * Number(pos.averagePrice || 0));
+    }, 0);
+
+    const openPositionsValue = paperWallet.positions.reduce((sum, pos) => {
+      const coin = coins.find((c) => c.id === pos.coinId);
+      const currentPrice = Number(coin?.current_price || pos.averagePrice || 0);
+      return sum + (Number(pos.amount || 0) * currentPrice);
+    }, 0);
+
+    const totalEquity = Number((Number(paperWallet.cash || 0) + openPositionsValue).toFixed(2));
+    const startingCapital = STARTING_DEMO_CASH || 10000;
+    const totalPnl = Number((totalEquity - startingCapital).toFixed(2));
+    const totalPnlPercent = startingCapital > 0 ? Number(((totalPnl / startingCapital) * 100).toFixed(2)) : 0;
+    const unrealizedPnl = Number((openPositionsValue - totalInvested).toFixed(2));
+    const unrealizedPnlPercent = totalInvested > 0 ? Number(((unrealizedPnl / totalInvested) * 100).toFixed(2)) : 0;
+
+    return {
+      totalValue: totalEquity,
+      totalInvested: Number(totalInvested.toFixed(2)),
+      cash: Number(paperWallet.cash || 0),
+      openPositionsValue: Number(openPositionsValue.toFixed(2)),
+      change: totalPnl,
+      changePercent: totalPnlPercent,
+      unrealizedPnl,
+      unrealizedPnlPercent,
+      positions: paperWallet.positions,
+      trades: paperWallet.trades,
+    };
+  }, [coins, paperWallet, portfolio.positions, portfolioSummary]);
+
+  const effectivePortfolioInsights = useMemo(() => {
+    if (portfolio.positions && portfolio.positions.length > 0) {
+      return portfolioInsights;
+    }
+
+    const positionsCount = paperWallet.positions.length;
+    if (positionsCount === 0) {
+      return {
+        diversificationScore: 10,
+        concentrationRisk: 0,
+        topPerformer: 'All in Cash',
+        rebalancingNote: 'Your demo portfolio is 100% in cash ($10,000). Place demo buy orders on crypto assets to start building an active portfolio.',
+        allocations: [],
+      };
+    }
+
+    const openPositions = paperWallet.positions.map((pos) => {
+      const coin = coins.find((c) => c.id === pos.coinId);
+      const currentPrice = Number(coin?.current_price || pos.averagePrice || 0);
+      const value = Number(pos.amount || 0) * currentPrice;
+      const cost = Number(pos.amount || 0) * Number(pos.averagePrice || 0);
+      const pnlPct = cost > 0 ? ((value - cost) / cost) * 100 : 0;
+      return { ...pos, value, currentPrice, pnlPct };
+    });
+
+    const totalEquity = Math.max(1, effectivePortfolioSummary.totalValue);
+    const largestPos = openPositions.reduce((max, p) => p.value > max.value ? p : max, openPositions[0]);
+    const concentrationRisk = Number(((largestPos.value / totalEquity) * 100).toFixed(1));
+
+    let diversificationScore = 30;
+    if (positionsCount === 1) diversificationScore = 35;
+    else if (positionsCount === 2) diversificationScore = 60;
+    else if (positionsCount === 3) diversificationScore = 78;
+    else diversificationScore = Math.min(95, 78 + (positionsCount - 3) * 5);
+
+    const topPos = openPositions.reduce((max, p) => p.pnlPct > max.pnlPct ? p : max, openPositions[0]);
+    const topPerformer = `${topPos.symbol.toUpperCase()} (${topPos.pnlPct >= 0 ? '+' : ''}${topPos.pnlPct.toFixed(2)}%)`;
+
+    let rebalancingNote = `Active demo allocation with ${positionsCount} open position(s).`;
+    if (concentrationRisk > 60) {
+      rebalancingNote = `High concentration risk in ${largestPos.symbol.toUpperCase()} (${concentrationRisk}% of equity). Consider rebalancing into other sectors to hedge downside.`;
+    } else if (positionsCount >= 3) {
+      rebalancingNote = `Good sector diversification across ${positionsCount} assets with balanced risk exposure.`;
+    }
+
+    return {
+      diversificationScore,
+      concentrationRisk,
+      topPerformer,
+      rebalancingNote,
+      allocations: openPositions,
+    };
+  }, [coins, effectivePortfolioSummary, paperWallet.positions, portfolio.positions, portfolioInsights]);
 
   const handlePlaceOrder = async () => {
     const currentCoin = tradeCoin || selectedCoin;
@@ -718,80 +1096,75 @@ function App() {
       return;
     }
 
-    try {
-      const response = await marketApi.placeTrade({
-        symbol: currentCoin.id,
-        side: orderSide,
-        amount: parsedAmount,
-        type: orderType,
-        price: currentCoin.current_price,
-      });
-
-      const order = response?.order || {
-        id: `ord_${Date.now()}`,
-        symbol: currentCoin.symbol.toUpperCase(),
-        side: orderSide,
-        amount: parsedAmount,
-        quote: orderTotal,
-        timestamp: 'just now',
-      };
-
-      setTradeHistory((current) => [
-        {
-          ...order,
-          id: order.id || `ord_${Date.now()}`,
-          symbol: order.symbol || currentCoin.symbol.toUpperCase(),
-          side: order.side || orderSide,
-          amount: Number(order.amount || parsedAmount),
-          quote: Number(order.quote || orderTotal),
-          timestamp: order.timestamp || 'just now',
-        },
-        ...current,
-      ].slice(0, 5));
-
-      if (token && user && currentCoin) {
-        try {
-          const savedPortfolio = await marketApi.savePortfolio(token, {
-            coinId: currentCoin.id,
-            symbol: currentCoin.symbol,
-            amount: Number(parsedAmount),
-            averagePrice: Number(currentCoin.current_price),
-            allocation: Number(((currentCoin.market_cap || 0) / Math.max(globalStats.totalMarketCap || 1, 1)) * 100) || 0,
-          });
-          if (savedPortfolio && savedPortfolio.portfolio) {
-            setPortfolio(savedPortfolio.portfolio);
-          }
-
-          const savedTransaction = await marketApi.saveTransaction(token, {
-            symbol: currentCoin.symbol,
-            side: orderSide,
-            amount: Number(parsedAmount),
-            quote: Number(orderTotal || 0),
-            type: orderType,
-            price: Number(currentCoin.current_price),
-            status: 'filled',
-          });
-
-          if (savedTransaction?.transaction) {
-            setTransactions((current) => [savedTransaction.transaction, ...current].slice(0, 10));
-            setTradeHistory((current) => [{
-              id: savedTransaction.transaction.id,
-              symbol: savedTransaction.transaction.symbol,
-              side: savedTransaction.transaction.side,
-              amount: Number(savedTransaction.transaction.amount || parsedAmount),
-              quote: Number(savedTransaction.transaction.quote || orderTotal),
-              timestamp: new Date(savedTransaction.transaction.timestamp || Date.now()).toLocaleString(),
-            }, ...current].slice(0, 5));
-          }
-        } catch (portfolioError) {
-          console.error('Unable to persist portfolio or transaction:', portfolioError);
-        }
-      }
-
+    if (currentCoin.data_source !== 'live') {
       setToast({
         id: Date.now(),
-        type: orderSide === 'buy' ? 'success' : 'info',
-        text: `${orderSide === 'buy' ? 'Buy' : 'Sell'} order filled for ${currentCoin.symbol.toUpperCase()} at ${formatCurrency(currentCoin.current_price)}.`,
+        type: 'error',
+        text: 'Live quotes are unavailable; demo orders are paused until the market feed recovers.',
+      });
+      return;
+    }
+
+    if (tradeMode === 'live') {
+      if (!token || !user) {
+        setToast({ id: Date.now(), type: 'error', text: 'Log in to BitNexa before placing a Binance Spot order.' });
+        return;
+      }
+      if (!binanceStatus.liveOrdersEnabled) {
+        setToast({ id: Date.now(), type: 'error', text: 'Binance production orders are not enabled on the backend.' });
+        return;
+      }
+
+      const pair = `${currentCoin.symbol.toUpperCase()}USDT`;
+      const confirmed = window.confirm(
+        `REAL BINANCE SPOT ORDER: ${orderSide.toUpperCase()} ${parsedAmount} ${currentCoin.symbol.toUpperCase()} using ${pair}. This can spend or sell real assets. Continue?`
+      );
+      if (!confirmed) return;
+
+      try {
+        const response = await marketApi.placeBinanceOrder(token, {
+          symbol: pair,
+          side: orderSide,
+          quantity: String(parsedAmount),
+        });
+        const order = response.order;
+        const liveTrade = {
+          id: order.orderId,
+          side: String(order.side || orderSide).toLowerCase(),
+          symbol: currentCoin.symbol.toUpperCase(),
+          amount: Number(order.executedQty || order.origQty || parsedAmount),
+          quote: Number(order.cummulativeQuoteQty || orderTotal),
+          timestamp: new Date(order.transactTime || Date.now()).toISOString(),
+          status: order.status || 'submitted',
+        };
+        setLiveTrades((current) => [liveTrade, ...current].slice(0, 20));
+        setToast({
+          id: Date.now(),
+          type: 'success',
+          text: `Binance order ${order.orderId} ${String(order.status || 'accepted').toLowerCase()}.`,
+        });
+        marketApi.getBinanceAccount(token)
+          .then((account) => setLiveBalances(account.balances || []))
+          .catch((error) => setLiveAccountError(error.message || 'Unable to refresh Binance balances.'));
+      } catch (error) {
+        setToast({ id: Date.now(), type: 'error', text: error?.message || 'Binance order failed.' });
+      }
+      return;
+    }
+
+    try {
+      const result = executePaperTrade(paperWallet, {
+        coinId: currentCoin.id,
+        symbol: currentCoin.symbol,
+        side: orderSide,
+        amount: parsedAmount,
+        price: currentCoin.current_price,
+      });
+      setPaperWallet(result.wallet);
+      setToast({
+        id: Date.now(),
+        type: 'success',
+        text: `Demo ${orderSide.toUpperCase()} filled: ${result.trade.amount} ${currentCoin.symbol.toUpperCase()} at ${formatCurrency(result.trade.price)}.`,
       });
     } catch (error) {
       setToast({
@@ -800,6 +1173,89 @@ function App() {
         text: error?.message || 'Unable to place trade order right now.',
       });
     }
+  };
+
+  const handleClosePosition = (coinId, closePercent = 100) => {
+    try {
+      const position = paperWallet.positions.find((p) => p.coinId === coinId);
+      if (!position) {
+        setToast({ id: Date.now(), type: 'error', text: 'Position not found in demo wallet.' });
+        return;
+      }
+
+      const positionCoin = coins.find((c) => c.id === coinId) || (selectedCoin?.id === coinId ? selectedCoin : null);
+      const currentPrice = Number(positionCoin?.current_price || position.averagePrice);
+
+      if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+        setToast({ id: Date.now(), type: 'error', text: 'Current market quote is not available.' });
+        return;
+      }
+
+      const result = closePaperPosition(paperWallet, {
+        coinId: position.coinId,
+        price: currentPrice,
+        percent: closePercent,
+      });
+
+      setPaperWallet(result.wallet);
+
+      const pnl = Number((((currentPrice - position.averagePrice) * result.trade.amount) - (result.trade.fee || 0)).toFixed(2));
+      const pnlPct = position.averagePrice > 0 ? Number((((currentPrice - position.averagePrice) / position.averagePrice) * 100).toFixed(2)) : 0;
+      const pnlSign = pnl >= 0 ? '+' : '';
+
+      setToast({
+        id: Date.now(),
+        type: pnl >= 0 ? 'success' : 'info',
+        text: `Position closed: Sold ${result.trade.amount} ${position.symbol.toUpperCase()} at ${formatCurrency(currentPrice)}. PnL: ${pnlSign}${formatCurrency(pnl)} (${pnlSign}${pnlPct}%)`,
+      });
+    } catch (error) {
+      setToast({
+        id: Date.now(),
+        type: 'error',
+        text: error?.message || 'Unable to close position.',
+      });
+    }
+  };
+
+  const handleCloseAllPositions = () => {
+    if (!paperWallet.positions.length) return;
+    try {
+      let currentWallet = { ...paperWallet, positions: [...paperWallet.positions] };
+      let totalClosedPnl = 0;
+      const closedSymbols = [];
+
+      for (const position of paperWallet.positions) {
+        const positionCoin = coins.find((c) => c.id === position.coinId) || (selectedCoin?.id === position.coinId ? selectedCoin : null);
+        const currentPrice = Number(positionCoin?.current_price || position.averagePrice);
+        if (Number.isFinite(currentPrice) && currentPrice > 0) {
+          const result = closePaperPosition(currentWallet, {
+            coinId: position.coinId,
+            price: currentPrice,
+            percent: 100,
+          });
+          currentWallet = result.wallet;
+          const pnl = (currentPrice - position.averagePrice) * Number(position.amount) - (result.trade.fee || 0);
+          totalClosedPnl += pnl;
+          closedSymbols.push(position.symbol.toUpperCase());
+        }
+      }
+
+      setPaperWallet(currentWallet);
+      const pnlSign = totalClosedPnl >= 0 ? '+' : '';
+      setToast({
+        id: Date.now(),
+        type: totalClosedPnl >= 0 ? 'success' : 'info',
+        text: `Closed ${closedSymbols.length} position(s) (${closedSymbols.join(', ')}). Realized PnL: ${pnlSign}${formatCurrency(totalClosedPnl)}`,
+      });
+    } catch (error) {
+      setToast({ id: Date.now(), type: 'error', text: error?.message || 'Failed to close all positions.' });
+    }
+  };
+
+  const handleResetDemoWallet = () => {
+    const freshWallet = createDemoWallet();
+    setPaperWallet(freshWallet);
+    setToast({ id: Date.now(), type: 'success', text: `Demo portfolio reset to ${formatCurrency(STARTING_DEMO_CASH)} cash.` });
   };
 
   useEffect(() => {
@@ -870,17 +1326,7 @@ function App() {
           setAlerts(alertsResponse.alerts);
         }
 
-        if (Array.isArray(transactionsResponse?.transactions)) {
-          setTransactions(transactionsResponse.transactions);
-          setTradeHistory(transactionsResponse.transactions.map((trade) => ({
-            id: trade.id,
-            symbol: trade.symbol,
-            side: trade.side,
-            amount: Number(trade.amount || 0),
-            quote: Number(trade.quote || 0),
-            timestamp: new Date(trade.timestamp || Date.now()).toLocaleString(),
-          })));
-        }
+        if (Array.isArray(transactionsResponse?.transactions)) setTransactions(transactionsResponse.transactions);
       } catch (error) {
         console.error('Unable to load synced user data:', error);
       }
@@ -936,6 +1382,78 @@ function App() {
     setToast({ id: Date.now(), type: 'info', text: 'You have been logged out.' });
   };
 
+  const handleDemoLogin = () => {
+    const demoUser = { name: 'Demo Trader', email: 'demo@example.com', id: 'demo-user' };
+    setUser(demoUser);
+    setToken('');
+    setAuthOpen(false);
+    setToast({ id: Date.now(), type: 'success', text: 'Welcome! You are in Demo Mode.' });
+  };
+
+  const handleAdminBrandClick = () => {
+    setBrandClickCount((c) => {
+      const next = c + 1;
+      if (next >= 3) {
+        setAdminOpen(true);
+        return 0;
+      }
+      clearTimeout(brandClickTimerRef.current);
+      brandClickTimerRef.current = setTimeout(() => setBrandClickCount(0), 2000);
+      return next;
+    });
+  };
+
+  const handleAdminLogin = async (event) => {
+    event.preventDefault();
+    setAdminError('');
+    setAdminLoading(true);
+    try {
+      const response = await marketApi.adminLogin({ email: adminForm.email, password: adminForm.password });
+      const tok = response.token || '';
+      setAdminToken(tok);
+      sessionStorage.setItem('bitnexa-admin-token', tok);
+      setAdminOpen(false);
+      setAdminPanel(true);
+      // Load data immediately
+      const [usersRes, statsRes] = await Promise.all([
+        marketApi.getAdminUsers(tok),
+        marketApi.getAdminStats(tok),
+      ]);
+      setAdminUsers(usersRes.users || []);
+      setAdminStats(statsRes);
+    } catch (err) {
+      setAdminError(err?.message || 'Admin login failed.');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminRefresh = async () => {
+    if (!adminToken) return;
+    setAdminLoading(true);
+    try {
+      const [usersRes, statsRes] = await Promise.all([
+        marketApi.getAdminUsers(adminToken),
+        marketApi.getAdminStats(adminToken),
+      ]);
+      setAdminUsers(usersRes.users || []);
+      setAdminStats(statsRes);
+    } catch (err) {
+      setToast({ id: Date.now(), type: 'error', text: err?.message || 'Admin refresh failed.' });
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setAdminToken('');
+    setAdminPanel(false);
+    setAdminUsers([]);
+    setAdminStats(null);
+    setAdminSelectedUser(null);
+    sessionStorage.removeItem('bitnexa-admin-token');
+  };
+
   const handleCreateAlert = async (event) => {
     event.preventDefault();
 
@@ -980,7 +1498,7 @@ function App() {
     Dashboard: 'Market Overview',
     Markets: 'Live Markets',
     Watchlist: 'Watchlist',
-    Portfolio: 'Portfolio Health',
+    Portfolio: 'My Portfolio',
     Alerts: 'Signal Alerts',
   };
 
@@ -988,7 +1506,8 @@ function App() {
     { key: 'overview', label: 'Overview' },
     { key: 'sectors', label: 'Sectors' },
     { key: 'heatmap', label: 'Heatmap' },
-    { key: 'portfolio', label: 'Portfolio' },
+    { key: 'portfolio', label: 'Your Mix' },
+    { key: 'compare', label: 'Compare' },
   ];
 
   const advancedWidgets = useMemo(() => [
@@ -1042,9 +1561,9 @@ function App() {
 
   return (
     <div className="app-shell">
-      <div className="dashboard-shell">
-        <aside className="sidebar">
-          <div className="brand-block">
+      <div className={`dashboard-shell ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'market-fullscreen-layout' : ''}`}>
+        <aside className={`sidebar ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'sidebar-hidden' : ''}`}>
+          <div className="brand-block" onClick={handleAdminBrandClick} title="BitNexa" style={{ cursor: 'pointer' }}>
             <span className="brand-mark">B</span>
             <div>
               <span className="brand">BITNEXA</span>
@@ -1052,28 +1571,62 @@ function App() {
             </div>
           </div>
 
-          <nav className="sidebar-nav">
-            {navItems.map((item, index) => (
+          {selectedNav === 'Markets' ? (
+            <div className="sidebar-market-panel">
               <button
-                key={item}
                 type="button"
-                className={`nav-item ${selectedNav === item ? 'active' : ''}`}
-                onClick={() => setSelectedNav(item)}
+                className="sidebar-market-back"
+                onClick={() => setSelectedNav(lastNonMarketNav || 'Dashboard')}
               >
-                <span>{index === 0 ? '◈' : index === 1 ? '◎' : index === 2 ? '★' : index === 3 ? '▣' : '⚑'}</span>
-                {item}
+                ← Back
               </button>
-            ))}
-          </nav>
+              <div className="sidebar-market-caption">Market Explorer</div>
+            </div>
+          ) : (
+            <nav className="sidebar-nav">
+              {navItems.map((item, index) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={`nav-item ${selectedNav === item ? 'active' : ''}`}
+                  onClick={() => {
+                    if (item !== 'Markets') {
+                      setLastNonMarketNav(item);
+                      setCoinWorkspaceFullscreen(false);
+                    }
+                    setSelectedNav(item);
+                  }}
+                >
+                  <span>{index === 0 ? '◈' : index === 1 ? '◎' : index === 2 ? '★' : index === 3 ? '▣' : '⚑'}</span>
+                  {item}
+                </button>
+              ))}
+            </nav>
+          )}
 
-          <div className="sidebar-card">
-            <span className="eyebrow">Portfolio</span>
-            <strong>{formatCompact((selectedCoin?.current_price || 0) * 4200)}</strong>
-            <small>Updated 2 min ago</small>
+          <div
+            className="sidebar-card interactive-sidebar-card"
+            onClick={() => {
+              setLastNonMarketNav('Portfolio');
+              setCoinWorkspaceFullscreen(false);
+              setSelectedNav('Portfolio');
+            }}
+            title="Open Portfolio Dashboard"
+            role="button"
+            tabIndex={0}
+          >
+            <div className="sidebar-card-top-row">
+              <span className="eyebrow">Demo Portfolio</span>
+              <span className="sidebar-portfolio-live-dot" />
+            </div>
+            <strong>{formatCurrency(effectivePortfolioSummary.totalValue)}</strong>
+            <small className={effectivePortfolioSummary.change >= 0 ? 'positive' : 'negative'}>
+              {effectivePortfolioSummary.change >= 0 ? '+' : ''}{formatCurrency(effectivePortfolioSummary.change)} ({effectivePortfolioSummary.change >= 0 ? '+' : ''}{effectivePortfolioSummary.changePercent.toFixed(2)}%)
+            </small>
           </div>
         </aside>
 
-        <main className="content-area">
+        <main className={`content-area ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'market-fullscreen-shell' : ''}`}>
           <header className="topbar">
             <div className="topbar-left">
               <button type="button" className="icon-button" aria-label="Toggle menu">☰</button>
@@ -1109,7 +1662,7 @@ function App() {
                         className="search-suggestion"
                         onMouseDown={(event) => {
                           event.preventDefault();
-                          setSelectedId(coin.id);
+                          openCoinWorkspace(coin.id);
                           setTradeCoinId(coin.id);
                           setQuery('');
                           setSearchOpen(false);
@@ -1128,6 +1681,21 @@ function App() {
                   </div>
                 )}
               </div>
+
+              <label className="currency-control">
+                <span>Currency</span>
+                <select
+                  aria-label="Display currency"
+                  value={currency}
+                  onChange={(event) => setCurrency(event.target.value)}
+                >
+                  {DISPLAY_CURRENCIES.map((option) => (
+                    <option key={option.code} value={option.code} disabled={!currencyRatesLoaded || !currencyRates[option.code]}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <button
                 type="button"
@@ -1215,18 +1783,18 @@ function App() {
 
               <div className="hero-panel">
                 <div className="mini-stat">
-                  <span>Portfolio Value</span>
-                  <strong>{formatCurrency(portfolioSummary.totalValue || 0)}</strong>
+                  <span>Demo Equity</span>
+                  <strong>{formatCurrency(effectivePortfolioSummary.totalValue)}</strong>
                 </div>
                 <div className="mini-stat accent">
-                  <span>P/L</span>
-                  <strong className={portfolioSummary.change >= 0 ? 'positive' : 'negative'}>
-                    {portfolioSummary.change >= 0 ? '+' : '-'}{formatCurrency(Math.abs(portfolioSummary.change || 0))}
+                  <span>Total P/L</span>
+                  <strong className={effectivePortfolioSummary.change >= 0 ? 'positive' : 'negative'}>
+                    {effectivePortfolioSummary.change >= 0 ? '+' : ''}{formatCurrency(effectivePortfolioSummary.change)} ({effectivePortfolioSummary.changePercent >= 0 ? '+' : ''}{effectivePortfolioSummary.changePercent.toFixed(2)}%)
                   </strong>
                 </div>
                 <div className="mini-stat">
-                  <span>Top Coin</span>
-                  <strong>{portfolioSummary.positions[0]?.symbol?.toUpperCase() || selectedCoin?.symbol?.toUpperCase() || 'BTC'}</strong>
+                  <span>Open Positions</span>
+                  <strong>{paperWallet.positions.length > 0 ? paperWallet.positions.length : '—'}</strong>
                 </div>
               </div>
             </section>
@@ -1548,7 +2116,7 @@ function App() {
             </section>
           </section>
 
-          <section className={`markets-section ${selectedNav === 'Markets' ? 'section-active' : 'section-hidden'}`}>
+          <section className={`markets-section ${selectedNav === 'Markets' ? 'section-active' : 'section-hidden'} ${coinWorkspaceFullscreen ? 'coin-workspace-fullscreen' : ''}`}>
             <div className="market-tabs" aria-label="Market tabs">
               {marketTabs.map((tab) => (
                 <button
@@ -1610,52 +2178,124 @@ function App() {
                 )}
 
                 <section className="market-grid">
-                  <div className="coin-list-panel">
-                    <div className="panel-header">
-                      <div>
-                        <h3>Market Overview</h3>
-                        <span>{sortedCoins.length} coins</span>
+                  <div className="coin-list-panel modern-market-panel">
+                    {/* Top Header Row: Clean, uncluttered, title with live pulse & sort on right */}
+                    <div className="market-panel-header">
+                      <div className="market-title-area">
+                        <div className="market-heading-with-live">
+                          <span className="market-live-beacon" title="Live crypto market stream">
+                            <span className="beacon-dot" />
+                            <span className="beacon-ring" />
+                          </span>
+                          <h3>Market Overview</h3>
+                        </div>
+                        <div className="market-meta-badge-row">
+                          <span className="market-counter-badge">{sortedCoins.length} coins</span>
+                          {quickFilter !== 'all' && (
+                            <button
+                              type="button"
+                              className="market-filter-reset-pill"
+                              onClick={() => setQuickFilter('all')}
+                              title="Reset filter to show all coins"
+                            >
+                              Reset filter ✕
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="sort-wrap">
-                        <label htmlFor="sortSelect">Sort</label>
-                        <select id="sortSelect" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-                          <option value="market_cap">Market Cap</option>
-                          <option value="price">Price</option>
-                          <option value="change">24h Change</option>
-                          <option value="symbol">Symbol</option>
-                        </select>
-                      </div>
-
-                      <div className="mini-toggle-group" aria-label="Market filter shortcuts">
-                        {marketSegmentOptions.map((filter) => (
-                          <button
-                            key={filter.key}
-                            type="button"
-                            className={quickFilter === filter.key ? 'active' : ''}
-                            onClick={() => setQuickFilter(filter.key)}
+                      <div className="market-sort-wrapper">
+                        <div className="modern-sort-pill">
+                          <span className="sort-pill-glyph" aria-hidden="true">⇅</span>
+                          <label htmlFor="sortSelect" className="sort-pill-label">Sort</label>
+                          <select
+                            id="sortSelect"
+                            value={sortBy}
+                            onChange={(event) => setSortBy(event.target.value)}
+                            className="modern-sort-select"
                           >
-                            {filter.label}
-                          </button>
-                        ))}
+                            <option value="market_cap">Market Cap</option>
+                            <option value="price">Price</option>
+                            <option value="change">24h Change</option>
+                            <option value="symbol">Symbol</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="market-segment-grid">
-                      {marketSegmentSummary.map((segment) => (
-                        <button
-                          key={segment.key}
-                          type="button"
-                          className={`market-segment-card ${quickFilter === segment.key ? 'active' : ''}`}
-                          onClick={() => setQuickFilter(segment.key)}
-                        >
-                          <span>{segment.label}</span>
-                          <strong>{segment.count}</strong>
-                          <small className={segment.averageChange >= 0 ? 'positive' : 'negative'}>
-                            {segment.averageChange >= 0 ? '+' : ''}{segment.averageChange.toFixed(2)}%
-                          </small>
-                        </button>
-                      ))}
+                    {/* HORIZONTAL Filter Tabs Bar (Full width, horizontal scroll track, sleek pills) */}
+                    <div className="market-horizontal-filter-wrapper">
+                      <div
+                        className="market-horizontal-filter-track"
+                        role="tablist"
+                        aria-label="Market category filters"
+                        onWheel={(e) => {
+                          if (e.deltaY !== 0 && e.currentTarget) {
+                            e.currentTarget.scrollLeft += e.deltaY * 0.8;
+                          }
+                        }}
+                      >
+                        {marketSegmentOptions.map((filter) => {
+                          const isActive = quickFilter === filter.key;
+                          return (
+                            <button
+                              key={filter.key}
+                              type="button"
+                              role="tab"
+                              aria-selected={isActive}
+                              className={`market-filter-tab-pill ${isActive ? 'active' : ''} filter-tab-${filter.key}`}
+                              onClick={() => setQuickFilter(filter.key)}
+                            >
+                              <span className="tab-pill-icon">{filter.icon}</span>
+                              <span className="tab-pill-text">{filter.label}</span>
+                              {typeof filter.count === 'number' && (
+                                <span className="tab-pill-count">{filter.count}</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Sector Pulse Horizontal Strip */}
+                    <div className="market-sector-pulse-wrap">
+                      <div className="sector-pulse-label-row">
+                        <span className="sector-pulse-caption">SECTOR PULSE</span>
+                        <span className="sector-pulse-caption-hint">24h Avg</span>
+                      </div>
+                      <div
+                        className="market-sector-pulse-track"
+                        onWheel={(e) => {
+                          if (e.deltaY !== 0 && e.currentTarget) {
+                            e.currentTarget.scrollLeft += e.deltaY * 0.8;
+                          }
+                        }}
+                      >
+                        {marketSegmentSummary.map((segment) => {
+                          const isSegmentActive = quickFilter === segment.key;
+                          const isPositive = (segment.averageChange || 0) >= 0;
+                          return (
+                            <button
+                              key={segment.key}
+                              type="button"
+                              className={`sector-metric-card sector-theme-${segment.key} ${isSegmentActive ? 'active' : ''}`}
+                              onClick={() => setQuickFilter(isSegmentActive ? 'all' : segment.key)}
+                              title={`Filter by ${segment.label}`}
+                            >
+                              <div className="sector-metric-top">
+                                <span className="sector-metric-icon">{segment.icon}</span>
+                                <span className="sector-metric-title">{segment.label}</span>
+                                <span className="sector-metric-count">{segment.count}</span>
+                              </div>
+                              <div className="sector-metric-bottom">
+                                <span className={`sector-metric-change ${isPositive ? 'positive' : 'negative'}`}>
+                                  {isPositive ? '▲ +' : '▼ '}{segment.averageChange.toFixed(2)}%
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     {loading ? (
@@ -1671,40 +2311,59 @@ function App() {
                         <p>{error}</p>
                       </div>
                     ) : sortedCoins.length === 0 ? (
-                      <div className="empty-state">
+                      <div className="empty-state market-empty-state">
                         <div className="empty-icon">⌕</div>
                         <h4>No crypto found</h4>
-                        <p>Try a different search term or reset the filter.</p>
+                        <p>No coins found matching "{quickFilter}".</p>
+                        <button type="button" className="ghost-btn" onClick={() => setQuickFilter('all')}>
+                          Reset to all coins
+                        </button>
                       </div>
                     ) : (
                       <>
-                        {visibleMarketCoins.map((coin) => (
-                          <button
-                            key={coin.id}
-                            type="button"
-                            className={`coin-card ${selectedCoin?.id === coin.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedId(coin.id)}
-                          >
-                            <div className="coin-meta">
-                              <img src={getSafeCoinImage(coin)} alt={coin.name} />
-                              <div>
-                                <strong>{coin.name}</strong>
-                                <span>{coin.symbol.toUpperCase()}</span>
-                              </div>
-                            </div>
+                        <div className="modern-coin-list-stack">
+                          {visibleMarketCoins.map((coin, index) => {
+                            const isPositive = (coin.price_change_percentage_24h || 0) >= 0;
+                            const isSelected = selectedCoin?.id === coin.id;
+                            const rank = coin.market_cap_rank || (index + 1);
+                            return (
+                              <button
+                                key={coin.id}
+                                type="button"
+                                className={`coin-card modern-coin-item ${isSelected ? 'selected' : ''}`}
+                                onClick={() => openCoinWorkspace(coin.id)}
+                              >
+                                <div className="coin-meta">
+                                  <span className="coin-rank-chip" title={`Rank #${rank}`}>#{rank}</span>
+                                  <div className="coin-avatar-wrapper">
+                                    <img src={getSafeCoinImage(coin)} alt={coin.name} loading="lazy" />
+                                  </div>
+                                  <div className="coin-name-group">
+                                    <strong className="coin-primary-name">{coin.name}</strong>
+                                    <span className="coin-symbol-ticker">{coin.symbol.toUpperCase()}</span>
+                                  </div>
+                                </div>
 
-                            <div className="coin-price">
-                              <strong>{formatCurrency(coin.current_price)}</strong>
-                              <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                                {formatPercent(coin.price_change_percentage_24h)}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
+                                <div className="coin-price">
+                                  <strong className="coin-price-display">{formatCurrency(coin.current_price)}</strong>
+                                  <span className={`coin-change-badge ${isPositive ? 'positive' : 'negative'}`}>
+                                    <span className="change-arrow">{isPositive ? '▲' : '▼'}</span>
+                                    {formatPercent(coin.price_change_percentage_24h)}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
 
                         {sortedCoins.length > visibleMarketCoins.length && (
-                          <button type="button" className="show-more-btn" onClick={() => setShowMoreCoins((current) => current + 8)}>
-                            Show more
+                          <button
+                            type="button"
+                            className="show-more-btn modern-show-more-btn"
+                            onClick={() => setShowMoreCoins((current) => current + 8)}
+                          >
+                            <span>Show more</span>
+                            <span className="show-more-counter">({visibleMarketCoins.length} of {sortedCoins.length})</span>
                           </button>
                         )}
                       </>
@@ -1770,6 +2429,9 @@ function App() {
                           <div className="chart-header">
                             <div className="chart-heading-wrap">
                               <h4>{chartViewOptions.find((item) => item.value === chartMode)?.label || 'Price'} History</h4>
+                              <span className={`chart-feed-status ${chartData.source}`}>
+                                {chartData.source === 'binance' ? autoRefresh ? `Binance · live · refreshes every 5s` : 'Binance · auto-refresh paused' : chartData.source === 'live' ? autoRefresh ? 'Live · refreshes every 60s' : 'Live · auto-refresh paused' : chartData.source === 'fallback' ? 'Preview data · feed limited' : chartData.source === 'error' ? 'Binance feed unavailable' : 'Loading live history'}
+                              </span>
                               <div className="chart-mode-selector">
                                 {chartViewOptions.map((item) => (
                                   <button
@@ -1782,15 +2444,47 @@ function App() {
                                   </button>
                                 ))}
                               </div>
+                              {chartMode === 'price' && (
+                                <div className="chart-style-selector" aria-label="Price chart style">
+                                  {[
+                                    { value: 'line', label: 'Line' },
+                                    { value: 'area', label: 'Area' },
+                                    { value: 'candlestick', label: 'Candles' },
+                                    { value: 'bar', label: 'OHLC bars' },
+                                    { value: 'baseline', label: 'Baseline' },
+                                  ].map((option) => (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      className={chartStyle === option.value ? 'active' : ''}
+                                      onClick={() => setChartStyle(option.value)}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
 
                             <div className="range-selector">
+                              {!coinWorkspaceFullscreen && (
+                                <button
+                                  type="button"
+                                  className="workspace-view-button"
+                                  onClick={() => setCoinWorkspaceFullscreen(true)}
+                                >
+                                  Full screen
+                                </button>
+                              )}
                               {rangeOptions.map((option) => (
                                 <button
                                   key={option.label}
                                   type="button"
                                   className={range === option.value ? 'active' : ''}
-                                  onClick={() => setRange(option.value)}
+                                    onClick={() => {
+                                      setRange(option.value);
+                                      if (INTRADAY_INTERVALS.includes(option.value)) setChartStyle('candlestick');
+                                    }}
                                 >
                                   {option.label}
                                 </button>
@@ -1816,6 +2510,16 @@ function App() {
                                 }}
                               />
                             </div>
+                          ) : chartMode === 'price' ? (
+                            <PriceChart
+                              prices={chartData}
+                              candles={candleChartData.candles || []}
+                              style={chartStyle}
+                              currency={currency}
+                              currencyRate={currencyRates[currency] || 1}
+                              resetKey={`${selectedId}:${range}`}
+                              showSeconds={INTRADAY_INTERVALS.includes(range)}
+                            />
                           ) : (
                             <Line
                               data={chartSeries[chartMode] || chartSeries.price}
@@ -1844,8 +2548,7 @@ function App() {
                                     ticks: { color: '#9db5d1', callback: (value) => {
                                       const label = Number(value);
                                       if (chartMode === 'performance') return `${label.toFixed(2)}%`;
-                                      if (chartMode === 'marketCap' || chartMode === 'volume') return `$${Number(label).toLocaleString()}`;
-                                      return `$${Number(label).toLocaleString()}`;
+                                      return formatCurrency(label);
                                     } },
                                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
                                   },
@@ -1867,9 +2570,36 @@ function App() {
 
                 <section className="trading-grid">
                   <div className="panel-card order-panel">
+                    {coinWorkspaceFullscreen && (
+                      <button
+                        type="button"
+                        className="ghost-btn demo-back-button"
+                        onClick={() => {
+                          setCoinWorkspaceFullscreen(false);
+                          setSelectedNav(lastNonMarketNav || 'Dashboard');
+                        }}
+                      >
+                        ← Back
+                      </button>
+                    )}
                     <div className="panel-header">
-                      <h3>Trade Ticket</h3>
-                      <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+                      <h3>Demo Trading</h3>
+                      <div className="demo-ticket-actions">
+                        <span className={`paper-trading-badge ${marketDataSource}`}>
+                          {marketDataSource === 'live' ? 'Paper · live quotes' : marketDataSource === 'loading' ? 'Loading live quotes' : 'Preview quotes · paused'}
+                        </span>
+                        <button
+                          type="button"
+                          className="demo-reset-btn"
+                          onClick={() => {
+                            if (window.confirm('Reset demo cash, positions, and trade history?')) {
+                              setPaperWallet(createDemoWallet());
+                            }
+                          }}
+                        >
+                          Reset
+                        </button>
+                      </div>
                     </div>
 
                     <div className="segmented-control">
@@ -1881,22 +2611,30 @@ function App() {
                       </button>
                     </div>
 
+                    <div className="demo-wallet-summary">
+                      <div>
+                        <span>Available demo cash</span>
+                        <strong>{formatCurrency(paperWallet.cash)}</strong>
+                      </div>
+                      <div>
+                        <span>Account equity</span>
+                        <strong>{formatCurrency(paperWallet.cash + paperOpenValue)}</strong>
+                      </div>
+                    </div>
+
                     <div className="ticket-form">
                       <label>
                         Order type
-                        <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
-                          <option value="market">Market</option>
-                          <option value="limit">Limit</option>
-                          <option value="stop">Stop</option>
-                        </select>
+                        <span className="market-order-label">Market fill at live quote</span>
                       </label>
 
                       <label>
-                        Amount
+                        Quantity (lot)
                         <div className="amount-row">
-                          <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                          <input type="number" min="0.000001" step="0.000001" value={amount} onChange={(event) => setAmount(event.target.value)} />
                           <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
                         </div>
+                        <small>Fractional quantities supported. Demo holding: {Number(selectedPaperPosition?.amount || 0).toFixed(6)}</small>
                       </label>
                     </div>
 
@@ -1906,21 +2644,134 @@ function App() {
                         <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
                       </div>
                       <div>
-                        <span>Est. total</span>
-                        <strong>{selectedCoin ? formatCurrency(orderTotal) : '--'}</strong>
+                        <span>Est. {orderSide === 'buy' ? 'cost' : 'proceeds'} incl. 0.1% fee</span>
+                        <strong>{selectedCoin ? formatCurrency(estimatedSettlement) : '--'}</strong>
                       </div>
                     </div>
 
-                    <div className="alert-list" style={{ margin: '16px 0' }}>
-                      {tradeHistory.map((trade) => (
-                        <div key={trade.id} className={`alert-item ${trade.side === 'buy' ? 'positive' : 'negative'}`}>
-                          <div className="alert-dot" />
-                          <div>
-                            <strong>{trade.side.toUpperCase()} {trade.symbol}</strong>
-                            <small>{trade.amount} {trade.symbol} • {formatCurrency(trade.quote)} • {trade.timestamp}</small>
-                          </div>
+                    {/* ── Live Open Positions Panel ── */}
+                    <div className="demo-position-section">
+                      <div className="demo-section-heading">
+                        <div className="demo-pos-heading-left">
+                          <span className="live-pos-dot" />
+                          <strong>Open Positions</strong>
+                          <span className="pos-count-badge">{paperWallet.positions.length}</span>
                         </div>
-                      ))}
+                        {paperWallet.positions.length > 0 && (
+                          <button
+                            type="button"
+                            className="close-all-btn"
+                            onClick={handleCloseAllPositions}
+                            title="Close all demo positions at market price"
+                          >
+                            Close All
+                          </button>
+                        )}
+                      </div>
+
+                      {paperWallet.positions.length ? (
+                        <div className="demo-position-list">
+                          {paperWallet.positions.map((position) => {
+                            const positionCoin = coins.find((coin) => coin.id === position.coinId);
+                            const currentPrice = Number(positionCoin?.current_price || position.averagePrice || 0);
+                            const currentValue = Number(position.amount) * currentPrice;
+                            const costBasis = Number(position.amount) * Number(position.averagePrice || 0);
+                            const unrealizedPnl = currentValue - costBasis;
+                            const unrealizedPnlPct = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
+                            const isProfit = unrealizedPnl >= 0;
+
+                            return (
+                              <div key={position.coinId} className={`live-position-card ${isProfit ? 'profit' : 'loss'}`}>
+                                <div className="live-pos-header">
+                                  <div className="live-pos-meta">
+                                    <span className="live-pos-symbol">{position.symbol.toUpperCase()}</span>
+                                    <span className="live-pos-amount">{Number(position.amount).toFixed(6)} @ {formatCurrency(position.averagePrice)}</span>
+                                  </div>
+                                  <div className="live-pos-pnl-badge">
+                                    <span className={`pnl-pill ${isProfit ? 'positive' : 'negative'}`}>
+                                      {isProfit ? '▲' : '▼'} {isProfit ? '+' : ''}{formatCurrency(unrealizedPnl)} ({isProfit ? '+' : ''}{unrealizedPnlPct.toFixed(2)}%)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="live-pos-stats-row">
+                                  <div className="live-pos-stat">
+                                    <span>Entry</span>
+                                    <strong>{formatCurrency(position.averagePrice)}</strong>
+                                  </div>
+                                  <div className="live-pos-stat">
+                                    <span>Current</span>
+                                    <strong className={isProfit ? 'positive' : 'negative'}>{formatCurrency(currentPrice)}</strong>
+                                  </div>
+                                  <div className="live-pos-stat">
+                                    <span>Value</span>
+                                    <strong>{formatCurrency(currentValue)}</strong>
+                                  </div>
+                                </div>
+
+                                <div className="live-pos-actions">
+                                  <button
+                                    type="button"
+                                    className="pos-action-btn view-btn"
+                                    onClick={() => openCoinWorkspace(position.coinId)}
+                                  >
+                                    📈 Chart
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="pos-action-btn half-close-btn"
+                                    onClick={() => handleClosePosition(position.coinId, 50)}
+                                    title="Close 50% of position"
+                                  >
+                                    ½ Close
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="pos-action-btn close-pos-btn"
+                                    onClick={() => handleClosePosition(position.coinId, 100)}
+                                    title="Close entire position at market price"
+                                  >
+                                    ✕ Close
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="demo-empty-state">No open positions. Use Buy to open your first demo trade.</p>
+                      )}
+                    </div>
+
+                    {/* ── Recent Trade History ── */}
+                    <div className="demo-trade-history">
+                      <div className="demo-section-heading" style={{ marginBottom: '8px' }}>
+                        <strong>Recent Fills</strong>
+                        <span>{Math.min(paperWallet.trades.length, 5)} of {paperWallet.trades.length}</span>
+                      </div>
+                      {paperWallet.trades.length ? paperWallet.trades.slice(0, 5).map((trade) => {
+                        const isPnlTrade = trade.pnl !== undefined;
+                        const isBuy = trade.side === 'buy';
+                        return (
+                          <div key={trade.id} className={`trade-history-row ${isBuy ? 'buy' : 'sell'}`}>
+                            <div className="trade-hist-icon">{isBuy ? '↑' : '↓'}</div>
+                            <div className="trade-hist-info">
+                              <span className="trade-hist-label">{isBuy ? 'BUY' : 'SELL'} {trade.symbol}</span>
+                              <small className="trade-hist-detail">
+                                {trade.amount} {trade.symbol} @ {formatCurrency(trade.price)} · {formatCurrency(trade.quote)}
+                              </small>
+                            </div>
+                            <div className="trade-hist-right">
+                              {isPnlTrade ? (
+                                <span className={`trade-pnl-chip ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
+                                  {trade.pnl >= 0 ? '+' : ''}{formatCurrency(trade.pnl)}
+                                </span>
+                              ) : null}
+                              <small className="trade-hist-time">{new Date(trade.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+                            </div>
+                          </div>
+                        );
+                      }) : <p className="demo-empty-state">No fills yet.</p>}
                     </div>
 
                     <button
@@ -1935,22 +2786,18 @@ function App() {
                   <div className="panel-card candle-panel">
                     <div className="panel-header">
                       <h3>Candlestick Pattern</h3>
-                      <span>{range === 1 ? '1D' : `${range}D`}</span>
+                      <span>{rangeOptions.find((option) => option.value === range)?.label || '7D'}</span>
                     </div>
 
                     <div className="candle-chart-wrap">
-                      <Bar
-                        data={candleChartData}
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          plugins: { legend: { display: false }, tooltip: { enabled: true } },
-                          scales: {
-                            x: { display: false },
-                            y: { display: false },
-                          },
-                          borderSkipped: false,
-                        }}
+                      <PriceChart
+                        prices={chartData}
+                        candles={candleChartData.candles || []}
+                        style="candlestick"
+                        currency={currency}
+                        currencyRate={currencyRates[currency] || 1}
+                        resetKey={`${selectedId}:${range}:pattern`}
+                        showSeconds={INTRADAY_INTERVALS.includes(range)}
                       />
                     </div>
 
@@ -1997,7 +2844,7 @@ function App() {
 
                       <div className="spread-box">
                         <small>Spread</small>
-                        <strong>{selectedCoin ? formatCurrency(Math.abs((orderBook.bids[0]?.price || 0) - (orderBook.asks[0]?.price || 0))) : '$0.00'}</strong>
+                        <strong>{selectedCoin ? formatCurrency(Math.abs((orderBook.bids[0]?.price || 0) - (orderBook.asks[0]?.price || 0))) : formatCurrency(0)}</strong>
                       </div>
 
                       <div className="book-column bids-column">
@@ -2082,7 +2929,7 @@ function App() {
                               <td className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
                                 {formatPercent(coin.price_change_percentage_24h)}
                               </td>
-                              <td><button className="link-btn" type="button" onClick={() => setSelectedId(coin.id)}>View</button></td>
+                              <td><button className="link-btn" type="button" onClick={() => openCoinWorkspace(coin.id)}>View</button></td>
                             </tr>
                           ))}
                         </tbody>
@@ -2107,6 +2954,76 @@ function App() {
               </>
             )}
 
+            {marketTab === 'compare' && (
+              <section className="panel-card comparison-panel">
+                <div className="panel-header">
+                  <h3>Coin comparison</h3>
+                  <span>{comparedCoins.length} of 3 selected</span>
+                </div>
+
+                <div className="comparison-selectors">
+                  {compareCoinIds.map((coinId, index) => (
+                    <label className="comparison-select-field" key={`comparison-asset-${index}`}>
+                      <span>Asset {index + 1}</span>
+                      <select
+                        aria-label={`Comparison asset ${index + 1}`}
+                        value={coinId}
+                        onChange={(event) => {
+                          const nextCoinId = event.target.value;
+                          setCompareCoinIds((current) => current.map((currentId, currentIndex) => (
+                            currentIndex === index ? nextCoinId : currentId
+                          )));
+                        }}
+                      >
+                        <option value="">Choose an asset</option>
+                        {coins.map((coin) => (
+                          <option
+                            key={coin.id}
+                            value={coin.id}
+                            disabled={compareCoinIds.some((selectedId, selectedIndex) => selectedIndex !== index && selectedId === coin.id)}
+                          >
+                            {coin.name} ({coin.symbol.toUpperCase()})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+
+                {comparedCoins.length >= 2 ? (
+                  <div className="comparison-table-wrap">
+                    <table className="data-table comparison-table" aria-label="Coin market comparison">
+                      <thead>
+                        <tr>
+                          <th scope="col">Metric</th>
+                          {comparedCoins.map((coin) => (
+                            <th scope="col" key={coin.id}>{coin.name}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comparisonMetrics.map((metric) => (
+                          <tr key={metric.label}>
+                            <th scope="row">{metric.label}</th>
+                            {comparedCoins.map((coin) => (
+                              <td className={metric.className?.(coin) || ''} key={coin.id}>
+                                {metric.value(coin)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <h4>Choose at least two different assets</h4>
+                    <p>Select assets above to compare their current market data.</p>
+                  </div>
+                )}
+              </section>
+            )}
+
             {marketTab === 'sectors' && (
               <section className="sector-panel-grid">
                 {segmentWidgets.map((segment) => (
@@ -2127,7 +3044,7 @@ function App() {
                           key={coin.id}
                           type="button"
                           className="segment-token"
-                          onClick={() => setSelectedId(coin.id)}
+                          onClick={() => openCoinWorkspace(coin.id)}
                         >
                           <span>{coin.symbol}</span>
                           <small className={coin.change >= 0 ? 'positive' : 'negative'}>
@@ -2159,7 +3076,7 @@ function App() {
                         boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.03), 0 0 ${Math.max(coin.intensity, 10)}px rgba(94,196,255,0.12)`,
                         borderColor: coin.price_change_percentage_24h >= 0 ? 'rgba(54,211,153,0.5)' : 'rgba(255,107,107,0.5)',
                       }}
-                      onClick={() => setSelectedId(coin.id)}
+                      onClick={() => openCoinWorkspace(coin.id)}
                     >
                       <span className="heatmap-symbol">{coin.symbol.toUpperCase()}</span>
                       <strong className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
@@ -2176,7 +3093,7 @@ function App() {
                 <section className="portfolio-breakdown-grid">
                   <div className="panel-card portfolio-block">
                     <div className="panel-header">
-                      <h3>Portfolio Category Breakdown</h3>
+                      <h3>Your Asset Mix</h3>
                       <span>Weighted mix</span>
                     </div>
 
@@ -2216,7 +3133,7 @@ function App() {
                 <section className="portfolio-insights-grid">
                   <div className="panel-card">
                     <div className="panel-header">
-                      <h3>Portfolio Strategy</h3>
+                      <h3>Your Portfolio Strategy</h3>
                       <span>Alpha view</span>
                     </div>
 
@@ -2287,11 +3204,111 @@ function App() {
           </section>
 
           <section className={`portfolio-section ${selectedNav === 'Portfolio' ? 'section-active' : 'section-hidden'}`}>
-            <section className="portfolio-grid">
+            {/* ── Demo Portfolio Summary Banner ── */}
+            <section className="panel-card demo-portfolio-banner" style={{ marginTop: '0.75rem' }}>
+              <div className="demo-pf-banner-top">
+                <div className="demo-pf-title-group">
+                  <span className="sidebar-portfolio-live-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', display: 'inline-block', marginRight: 8 }} />
+                  <h3 style={{ margin: 0, fontSize: '1.05rem' }}>{portfolio.positions.length ? 'Live Holdings' : 'Demo Portfolio'}</h3>
+                </div>
+                <div className="demo-pf-banner-actions">
+                  {paperWallet.positions.length > 0 && (
+                    <button type="button" className="ghost-btn small-btn" onClick={handleCloseAllPositions}>Close All</button>
+                  )}
+                  <button type="button" className="ghost-btn small-btn" onClick={handleResetDemoWallet} title="Reset demo wallet to $10,000">
+                    ↺ Reset
+                  </button>
+                </div>
+              </div>
+
+              <div className="demo-pf-equity-row">
+                <div className="demo-pf-stat">
+                  <span>Total Equity</span>
+                  <strong style={{ fontSize: '1.6rem', letterSpacing: '-0.02em' }}>{formatCurrency(effectivePortfolioSummary.totalValue)}</strong>
+                </div>
+                <div className="demo-pf-stat">
+                  <span>Total P/L</span>
+                  <strong className={effectivePortfolioSummary.change >= 0 ? 'positive' : 'negative'} style={{ fontSize: '1.2rem' }}>
+                    {effectivePortfolioSummary.change >= 0 ? '+' : ''}{formatCurrency(effectivePortfolioSummary.change)}
+                    <small style={{ fontSize: '0.8rem', marginLeft: 4, opacity: 0.8 }}>({effectivePortfolioSummary.changePercent >= 0 ? '+' : ''}{effectivePortfolioSummary.changePercent.toFixed(2)}%)</small>
+                  </strong>
+                </div>
+                <div className="demo-pf-stat">
+                  <span>Demo Cash</span>
+                  <strong style={{ fontSize: '1.1rem' }}>{formatCurrency(effectivePortfolioSummary.cash)}</strong>
+                </div>
+                <div className="demo-pf-stat">
+                  <span>Open P/L</span>
+                  <strong className={effectivePortfolioSummary.unrealizedPnl >= 0 ? 'positive' : 'negative'} style={{ fontSize: '1.1rem' }}>
+                    {effectivePortfolioSummary.unrealizedPnl >= 0 ? '+' : ''}{formatCurrency(effectivePortfolioSummary.unrealizedPnl || 0)}
+                    {effectivePortfolioSummary.unrealizedPnlPercent !== 0 && (
+                      <small style={{ fontSize: '0.75rem', marginLeft: 4, opacity: 0.8 }}>({effectivePortfolioSummary.unrealizedPnlPercent >= 0 ? '+' : ''}{(effectivePortfolioSummary.unrealizedPnlPercent || 0).toFixed(2)}%)</small>
+                    )}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Open Positions in Portfolio Tab */}
+              {paperWallet.positions.length > 0 && (
+                <div className="demo-pf-positions-list" style={{ marginTop: 16 }}>
+                  <div className="demo-section-heading" style={{ marginBottom: 8 }}>
+                    <strong>Live Positions</strong>
+                    <span className="pos-count-badge">{paperWallet.positions.length}</span>
+                  </div>
+                  {paperWallet.positions.map((pos) => {
+                    const positionCoin = coins.find((c) => c.id === pos.coinId);
+                    const currentPrice = Number(positionCoin?.current_price || pos.averagePrice || 0);
+                    const currentValue = Number(pos.amount) * currentPrice;
+                    const costBasis = Number(pos.amount) * Number(pos.averagePrice || 0);
+                    const unrealizedPnl = currentValue - costBasis;
+                    const unrealizedPct = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
+                    const isProfit = unrealizedPnl >= 0;
+                    return (
+                      <div key={pos.coinId} className={`live-position-card ${isProfit ? 'profit' : 'loss'}`}>
+                        <div className="live-pos-header">
+                          <div className="live-pos-meta">
+                            <span className="live-pos-symbol">{pos.symbol.toUpperCase()}</span>
+                            <span className="live-pos-amount">{Number(pos.amount).toFixed(6)} @ {formatCurrency(pos.averagePrice)}</span>
+                          </div>
+                          <span className={`pnl-pill ${isProfit ? 'positive' : 'negative'}`}>
+                            {isProfit ? '▲ +' : '▼ '}{formatCurrency(unrealizedPnl)} ({isProfit ? '+' : ''}{unrealizedPct.toFixed(2)}%)
+                          </span>
+                        </div>
+                        <div className="live-pos-stats-row">
+                          <div className="live-pos-stat"><span>Entry</span><strong>{formatCurrency(pos.averagePrice)}</strong></div>
+                          <div className="live-pos-stat"><span>Current</span><strong className={isProfit ? 'positive' : 'negative'}>{formatCurrency(currentPrice)}</strong></div>
+                          <div className="live-pos-stat"><span>Value</span><strong>{formatCurrency(currentValue)}</strong></div>
+                        </div>
+                        <div className="live-pos-actions">
+                          <button type="button" className="pos-action-btn view-btn" onClick={() => openCoinWorkspace(pos.coinId)}>📈 Chart</button>
+                          <button type="button" className="pos-action-btn half-close-btn" onClick={() => handleClosePosition(pos.coinId, 50)}>½ Close</button>
+                          <button type="button" className="pos-action-btn close-pos-btn" onClick={() => handleClosePosition(pos.coinId, 100)}>✕ Close</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="portfolio-spotlight-grid" style={{ marginTop: 16 }}>
+                {portfolioBreakdown.map((item) => (
+                  <div key={item.label} className="portfolio-holding-pill" style={{ borderColor: item.color }}>
+                    <span className="holding-dot" style={{ background: item.color }} />
+                    <div>
+                      <strong>{item.label}</strong>
+                      <small>{item.weight}% of portfolio</small>
+                    </div>
+                    <em>{item.value}</em>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="portfolio-grid" style={{ marginTop: '1.5rem' }}>
               <div className="panel-card">
                 <div className="panel-header">
-                  <h3>Portfolio Allocation</h3>
-                  <span>{portfolio.positions.length ? 'Live' : 'Demo'}</span>
+                  <h3>Asset Mix</h3>
+                  <span>{paperWallet.positions.length > 0 ? `${paperWallet.positions.length} assets` : 'All Cash'}</span>
                 </div>
 
                 <div className="allocation-list">
@@ -2312,7 +3329,7 @@ function App() {
 
               <div className="panel-card">
                 <div className="panel-header">
-                  <h3>Signal Alerts</h3>
+                  <h3>Your Alerts</h3>
                   <span>{alerts.length ? `${alerts.length} saved` : '3 new'}</span>
                 </div>
 
@@ -2499,7 +3516,242 @@ function App() {
                 </button>
                 <button type="submit" className="primary-btn">{authMode === 'login' ? 'Login' : 'Register'}</button>
               </div>
+
+              {authMode === 'login' && (
+                <div className="modal-demo-strip">
+                  <span className="modal-demo-label">Just exploring?</span>
+                  <button type="button" className="demo-login-btn" onClick={handleDemoLogin}>
+                    ⚡ Continue as Demo
+                  </button>
+                </div>
+              )}
             </form>
+          </div>
+        </div>
+      )}
+
+      {adminOpen && (
+        <div className="modal-backdrop" onClick={() => setAdminOpen(false)}>
+          <div className="modal-panel admin-login-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="topbar-kicker" style={{ color: '#f59e0b' }}>🔐 Restricted Access</p>
+                <h3>Admin Control Panel</h3>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setAdminOpen(false)}>×</button>
+            </div>
+            <form className="modal-body" onSubmit={handleAdminLogin}>
+              <label className="modal-field">
+                Admin Email
+                <input
+                  type="email"
+                  value={adminForm.email}
+                  onChange={(e) => setAdminForm((c) => ({ ...c, email: e.target.value }))}
+                  placeholder="admin@bitnexa.com"
+                  autoComplete="off"
+                />
+              </label>
+              <label className="modal-field">
+                Admin Password
+                <input
+                  type="password"
+                  value={adminForm.password}
+                  onChange={(e) => setAdminForm((c) => ({ ...c, password: e.target.value }))}
+                  placeholder="••••••••"
+                />
+              </label>
+              {adminError && <div className="error-banner">{adminError}</div>}
+              <div className="modal-actions">
+                <button type="button" className="ghost-btn" onClick={() => setAdminOpen(false)}>Cancel</button>
+                <button type="submit" className="primary-btn" disabled={adminLoading}>
+                  {adminLoading ? 'Verifying…' : '🔐 Enter Admin Panel'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {adminPanel && (
+        <div className="admin-panel-overlay">
+          <div className="admin-panel">
+            <div className="admin-panel-header">
+              <div className="admin-panel-title">
+                <span className="admin-badge">⚙️ ADMIN</span>
+                <h2>BitNexa Control Center</h2>
+                <span className="admin-subtitle">Platform Overview · Real-time Data</span>
+              </div>
+              <div className="admin-panel-actions">
+                <button type="button" className="admin-refresh-btn" onClick={handleAdminRefresh} disabled={adminLoading}>
+                  {adminLoading ? '⟳ Loading…' : '⟳ Refresh'}
+                </button>
+                <button type="button" className="admin-logout-btn" onClick={handleAdminLogout}>✕ Exit</button>
+              </div>
+            </div>
+
+            {adminStats && (
+              <div className="admin-stats-grid">
+                <div className="admin-stat-card">
+                  <span className="admin-stat-icon">👥</span>
+                  <div>
+                    <div className="admin-stat-value">{adminStats.totalUsers}</div>
+                    <div className="admin-stat-label">Registered Users</div>
+                  </div>
+                </div>
+                <div className="admin-stat-card">
+                  <span className="admin-stat-icon">📊</span>
+                  <div>
+                    <div className="admin-stat-value">{adminStats.totalTrades}</div>
+                    <div className="admin-stat-label">Total Trades</div>
+                  </div>
+                </div>
+                <div className="admin-stat-card">
+                  <span className="admin-stat-icon">💰</span>
+                  <div>
+                    <div className="admin-stat-value">${Number(adminStats.totalVolume || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                    <div className="admin-stat-label">Total Volume (USD)</div>
+                  </div>
+                </div>
+                <div className="admin-stat-card">
+                  <span className="admin-stat-icon">{Number(adminStats.totalPnL || 0) >= 0 ? '📈' : '📉'}</span>
+                  <div>
+                    <div className={`admin-stat-value ${Number(adminStats.totalPnL || 0) >= 0 ? 'positive' : 'negative'}`}>
+                      {Number(adminStats.totalPnL || 0) >= 0 ? '+' : ''}${Number(adminStats.totalPnL || 0).toFixed(2)}
+                    </div>
+                    <div className="admin-stat-label">Platform P&amp;L</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="admin-panel-body">
+              <div className="admin-users-section">
+                <h3 className="admin-section-title">Registered Users ({adminUsers.length})</h3>
+                {adminUsers.length === 0 && !adminLoading && (
+                  <div className="admin-empty">No registered users yet. Users will appear here after they sign up.</div>
+                )}
+                {adminLoading && adminUsers.length === 0 && (
+                  <div className="admin-empty">Loading users…</div>
+                )}
+                <div className="admin-users-table-wrap">
+                  <table className="admin-users-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Joined</th>
+                        <th>Trades</th>
+                        <th>Buy Vol</th>
+                        <th>Sell Vol</th>
+                        <th>P&amp;L</th>
+                        <th>Positions</th>
+                        <th>Watchlist</th>
+                        <th>Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminUsers.map((u) => (
+                        <tr key={u.id} className={adminSelectedUser?.id === u.id ? 'admin-row-selected' : ''}>
+                          <td>
+                            <div className="admin-user-cell">
+                              <span className="admin-user-avatar">{(u.name || 'U').charAt(0).toUpperCase()}</span>
+                              <div>
+                                <div className="admin-user-name">{u.name}</div>
+                                <div className="admin-user-email">{u.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="admin-td-muted">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
+                          <td className="admin-td-center">
+                            <span className="admin-badge-count">{u.tradeCount}</span>
+                          </td>
+                          <td className="positive">${Number(u.totalBuyVolume || 0).toFixed(2)}</td>
+                          <td className="admin-td-muted">${Number(u.totalSellVolume || 0).toFixed(2)}</td>
+                          <td className={Number(u.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}>
+                            {Number(u.realizedPnL || 0) >= 0 ? '+' : ''}${Number(u.realizedPnL || 0).toFixed(2)}
+                          </td>
+                          <td className="admin-td-center">{u.openPositions}</td>
+                          <td className="admin-td-center">{u.watchlistCount}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="admin-detail-btn"
+                              onClick={() => setAdminSelectedUser(adminSelectedUser?.id === u.id ? null : u)}
+                            >
+                              {adminSelectedUser?.id === u.id ? 'Hide' : 'View'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {adminSelectedUser && (
+                <div className="admin-user-detail">
+                  <div className="admin-detail-header">
+                    <span className="admin-user-avatar large">{(adminSelectedUser.name || 'U').charAt(0).toUpperCase()}</span>
+                    <div>
+                      <h4>{adminSelectedUser.name}</h4>
+                      <span className="admin-user-email">{adminSelectedUser.email}</span>
+                    </div>
+                    <button type="button" className="admin-logout-btn" style={{ marginLeft: 'auto' }} onClick={() => setAdminSelectedUser(null)}>✕ Close</button>
+                  </div>
+                  <div className="admin-detail-stats">
+                    <div className="admin-detail-stat"><span>Total Trades</span><strong>{adminSelectedUser.tradeCount}</strong></div>
+                    <div className="admin-detail-stat"><span>Buys</span><strong className="positive">{adminSelectedUser.buyCount}</strong></div>
+                    <div className="admin-detail-stat"><span>Sells</span><strong>{adminSelectedUser.sellCount}</strong></div>
+                    <div className="admin-detail-stat"><span>Buy Volume</span><strong className="positive">${Number(adminSelectedUser.totalBuyVolume).toFixed(2)}</strong></div>
+                    <div className="admin-detail-stat"><span>Sell Volume</span><strong>${Number(adminSelectedUser.totalSellVolume).toFixed(2)}</strong></div>
+                    <div className="admin-detail-stat"><span>Realized P&amp;L</span><strong className={Number(adminSelectedUser.realizedPnL) >= 0 ? 'positive' : 'negative'}>{Number(adminSelectedUser.realizedPnL) >= 0 ? '+' : ''}${Number(adminSelectedUser.realizedPnL).toFixed(2)}</strong></div>
+                    <div className="admin-detail-stat"><span>Open Positions</span><strong>{adminSelectedUser.openPositions}</strong></div>
+                    <div className="admin-detail-stat"><span>Watchlist Coins</span><strong>{adminSelectedUser.watchlistCount}</strong></div>
+                    <div className="admin-detail-stat"><span>Alerts Set</span><strong>{adminSelectedUser.alertCount}</strong></div>
+                  </div>
+                  {adminSelectedUser.recentTrades && adminSelectedUser.recentTrades.length > 0 && (
+                    <div className="admin-recent-trades">
+                      <h5>Recent Trades</h5>
+                      <table className="admin-users-table">
+                        <thead>
+                          <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Amount</th>
+                            <th>Price</th>
+                            <th>Total</th>
+                            <th>P&amp;L</th>
+                            <th>Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminSelectedUser.recentTrades.map((t, i) => (
+                            <tr key={t.id || i}>
+                              <td><strong>{t.symbol}</strong></td>
+                              <td className={t.side === 'buy' ? 'positive' : 'negative'}>{String(t.side || '').toUpperCase()}</td>
+                              <td>{Number(t.amount || 0).toFixed(6)}</td>
+                              <td>${Number(t.price || 0).toLocaleString()}</td>
+                              <td>${Number(t.quote || 0).toFixed(2)}</td>
+                              <td className={Number(t.pnl || 0) >= 0 ? 'positive' : 'negative'}>
+                                {t.pnl !== undefined ? `${Number(t.pnl) >= 0 ? '+' : ''}$${Number(t.pnl).toFixed(2)}` : '—'}
+                              </td>
+                              <td className="admin-td-muted">{t.timestamp ? new Date(t.timestamp).toLocaleDateString() : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {(!adminSelectedUser.recentTrades || adminSelectedUser.recentTrades.length === 0) && (
+                    <div className="admin-empty" style={{ marginTop: '1rem' }}>This user has not made any trades yet.</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="admin-panel-footer">
+              <span>BitNexa Admin · Session expires in 4h</span>
+              <span>Last updated: {new Date().toLocaleTimeString()}</span>
+            </div>
           </div>
         </div>
       )}
