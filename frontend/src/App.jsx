@@ -2050,11 +2050,21 @@ function App() {
                 {selectedCoin && detailExpanded && (
                   <section className="panel-card coin-detail-hero">
                     <div className="coin-header detail-header">
-                      <div className="coin-meta large">
-                        <img src={getSafeCoinImage(selectedCoin)} alt={selectedCoin.name} />
-                        <div>
-                          <h2>{selectedCoin.name}</h2>
-                          <span>{selectedCoin.symbol.toUpperCase()} • {selectedCoin.market_cap_rank ? `#${selectedCoin.market_cap_rank}` : 'Market'}</span>
+                      <div className="coin-header-left">
+                        <button
+                          type="button"
+                          className="coin-back-btn"
+                          onClick={() => setSelectedNav(lastNonMarketNav || 'Dashboard')}
+                          title="Back to Dashboard"
+                        >
+                          ← Back
+                        </button>
+                        <div className="coin-meta large">
+                          <img src={getSafeCoinImage(selectedCoin)} alt={selectedCoin.name} />
+                          <div>
+                            <h2>{selectedCoin.name}</h2>
+                            <span>{selectedCoin.symbol.toUpperCase()} • {selectedCoin.market_cap_rank ? `#${selectedCoin.market_cap_rank}` : 'Market'}</span>
+                          </div>
                         </div>
                       </div>
 
@@ -2289,21 +2299,46 @@ function App() {
                     {selectedCoin ? (
                       <>
                         <div className="coin-header">
-                          <div className="coin-meta large">
-                            <img src={getSafeCoinImage(selectedCoin)} alt={selectedCoin.name} />
-                            <div>
-                              <h2>{selectedCoin.name}</h2>
-                              <span>{selectedCoin.symbol.toUpperCase()}</span>
+                          <div className="coin-header-left">
+                            <button
+                              type="button"
+                              className="coin-back-btn"
+                              onClick={() => {
+                                setCoinWorkspaceFullscreen(false);
+                                setSelectedNav(lastNonMarketNav || 'Dashboard');
+                              }}
+                              title="Go back to Dashboard"
+                            >
+                              ← Back
+                            </button>
+                            <div className="coin-meta large">
+                              <img src={getSafeCoinImage(selectedCoin)} alt={selectedCoin.name} />
+                              <div>
+                                <h2>{selectedCoin.name}</h2>
+                                <span>{selectedCoin.symbol.toUpperCase()}</span>
+                              </div>
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            className="watch-btn"
-                            onClick={() => toggleWatchlist(selectedCoin.id)}
-                          >
-                            {watchlist.includes(selectedCoin.id) ? '★ Saved' : '☆ Add to Watchlist'}
-                          </button>
+                          <div className="coin-header-actions">
+                            {coinWorkspaceFullscreen && (
+                              <button
+                                type="button"
+                                className="exit-fullscreen-btn"
+                                onClick={() => setCoinWorkspaceFullscreen(false)}
+                                title="Exit Fullscreen Mode"
+                              >
+                                ✕ Exit Fullscreen
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="watch-btn"
+                              onClick={() => toggleWatchlist(selectedCoin.id)}
+                            >
+                              {watchlist.includes(selectedCoin.id) ? '★ Saved' : '☆ Add to Watchlist'}
+                            </button>
+                          </div>
                         </div>
 
                         <div className="price-row">
@@ -2382,13 +2417,21 @@ function App() {
                             </div>
 
                             <div className="range-selector">
-                              {!coinWorkspaceFullscreen && (
+                              {!coinWorkspaceFullscreen ? (
                                 <button
                                   type="button"
                                   className="workspace-view-button"
                                   onClick={() => setCoinWorkspaceFullscreen(true)}
                                 >
                                   Full screen
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="workspace-view-button active"
+                                  onClick={() => setCoinWorkspaceFullscreen(false)}
+                                >
+                                  ✕ Exit Fullscreen
                                 </button>
                               )}
                               {rangeOptions.map((option) => (

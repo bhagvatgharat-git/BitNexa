@@ -305,6 +305,12 @@ body[data-theme='light'] .hero-banner { background: linear-gradient(135deg, rgba
 .coin-price strong { font-size: 0.95rem; }
 .details-panel { min-height: 520px; }
 .coin-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 18px; }
+.coin-header-left { display: flex; align-items: center; gap: 14px; }
+.coin-header-actions { display: flex; align-items: center; gap: 10px; }
+.coin-back-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(94, 196, 255, 0.35); background: rgba(94, 196, 255, 0.1); color: var(--text); font-size: 0.88rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease; backdrop-filter: blur(8px); }
+.coin-back-btn:hover { background: rgba(94, 196, 255, 0.22); border-color: rgba(94, 196, 255, 0.65); transform: translateX(-3px); box-shadow: 0 4px 14px rgba(94, 196, 255, 0.2); }
+.exit-fullscreen-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(255, 100, 124, 0.35); background: rgba(255, 100, 124, 0.1); color: #ff647c; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease; }
+.exit-fullscreen-btn:hover { background: rgba(255, 100, 124, 0.22); border-color: rgba(255, 100, 124, 0.6); }
 .watch-btn { border: 1px solid rgba(94, 196, 255, 0.4); border-radius: 10px; background: rgba(94, 196, 255, 0.08); color: var(--text); padding: 10px 14px; }
 .price-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
 .price-row h3 { margin: 0; font-size: clamp(2rem, 3vw, 3rem); }
