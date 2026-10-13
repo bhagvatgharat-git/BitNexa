@@ -19,39 +19,48 @@ export default function AuthModal({
           <button type="button" className="close-btn" onClick={onClose}>×</button>
         </div>
 
-        <form className="modal-body" onSubmit={handleAuthSubmit} autoComplete="off">
+        <form className="modal-body" onSubmit={handleAuthSubmit} autoComplete="on">
           {authMode === 'register' && (
-            <label className="modal-field">
+            <label className="modal-field" htmlFor="auth-name">
               Full name
               <input
+                id="auth-name"
+                name="name"
                 type="text"
                 value={authForm.name}
                 onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))}
                 placeholder="Enter your full name"
-                autoComplete="off"
+                autoComplete="name"
+                required
               />
             </label>
           )}
 
-          <label className="modal-field">
+          <label className="modal-field" htmlFor="auth-email">
             Email
             <input
+              id="auth-email"
+              name="email"
               type="email"
               value={authForm.email}
               onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
               placeholder="Enter your email"
-              autoComplete="off"
+              autoComplete={authMode === 'login' ? 'username' : 'email'}
+              required
             />
           </label>
 
-          <label className="modal-field">
+          <label className="modal-field" htmlFor="auth-password">
             Password
             <input
+              id="auth-password"
+              name="password"
               type="password"
               value={authForm.password}
               onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
               placeholder="Enter your password"
-              autoComplete="new-password"
+              autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+              required
             />
           </label>
 

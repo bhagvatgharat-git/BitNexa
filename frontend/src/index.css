@@ -528,6 +528,13 @@ body[data-theme='light'] .empty-state { background: linear-gradient(180deg, rgba
 .modal-body { display: flex; flex-direction: column; gap: 10px; }
 .modal-field { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 0.8rem; }
 .modal-field input, .modal-field select { background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--text); padding: 10px 12px; }
+.modal-field input:-webkit-autofill,
+.modal-field input:-webkit-autofill:hover,
+.modal-field input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0e1e2c inset !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
 .summary-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
 .summary-line span { color: var(--muted); }
 .summary-line.highlight { background: rgba(94, 196, 255, 0.08); }

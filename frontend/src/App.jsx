@@ -1382,12 +1382,17 @@ function App() {
     setAuthError('');
 
     try {
+      const formData = new FormData(event.currentTarget);
+      const email = ((formData.get('email') ?? authForm.email) || '').toString().trim();
+      const password = ((formData.get('password') ?? authForm.password) || '').toString();
+      const name = ((formData.get('name') ?? authForm.name) || '').toString().trim();
+
       const payload = authMode === 'login'
-        ? { email: authForm.email, password: authForm.password }
-        : { name: authForm.name, email: authForm.email, password: authForm.password };
+        ? { email, password }
+        : { name, email, password };
 
       const response = await (authMode === 'login' ? marketApi.login(payload) : marketApi.register(payload));
-      const nextUser = response.user || { name: authForm.name || 'BitNexa Trader', email: authForm.email };
+      const nextUser = response.user || { name: name || 'BitNexa Trader', email };
 
       setUser(nextUser);
       setToken(response.token || '');
@@ -1453,7 +1458,11 @@ function App() {
     setAdminError('');
     setAdminLoading(true);
     try {
-      const response = await marketApi.adminLogin({ email: adminForm.email, password: adminForm.password });
+      const formData = new FormData(event.currentTarget);
+      const email = ((formData.get('email') ?? adminForm.email) || '').toString().trim();
+      const password = ((formData.get('password') ?? adminForm.password) || '').toString();
+
+      const response = await marketApi.adminLogin({ email, password });
       const tok = response.token || '';
       setAdminToken(tok);
       sessionStorage.setItem('bitnexa-admin-token', tok);

@@ -16,25 +16,31 @@ export default function AdminModal({
           </div>
           <button type="button" className="close-btn" onClick={onClose}>×</button>
         </div>
-        <form className="modal-body" onSubmit={handleAdminLogin} autoComplete="off">
-          <label className="modal-field">
+        <form className="modal-body" onSubmit={handleAdminLogin} autoComplete="on">
+          <label className="modal-field" htmlFor="admin-email">
             Admin Email
             <input
+              id="admin-email"
+              name="email"
               type="email"
               value={adminForm.email}
               onChange={(e) => setAdminForm((c) => ({ ...c, email: e.target.value }))}
               placeholder="Enter admin email"
-              autoComplete="off"
+              autoComplete="username"
+              required
             />
           </label>
-          <label className="modal-field">
+          <label className="modal-field" htmlFor="admin-password">
             Admin Password
             <input
+              id="admin-password"
+              name="password"
               type="password"
               value={adminForm.password}
               onChange={(e) => setAdminForm((c) => ({ ...c, password: e.target.value }))}
               placeholder="Enter admin password"
-              autoComplete="new-password"
+              autoComplete="current-password"
+              required
             />
           </label>
           {adminError && <div className="error-banner">{adminError}</div>}
