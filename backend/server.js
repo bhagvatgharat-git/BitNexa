@@ -1047,6 +1047,60 @@ app.post('/api/admin/login', async (req, res) => {
   return res.json({ message: 'Admin login successful.', token: adminToken });
 });
 
+const formatUserAdminData = (u, txns = [], portfolio = {}, watchlist = [], alerts = []) => {
+  const safeTxns = Array.isArray(txns) ? [...txns] : [];
+  safeTxns.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+  const buys = safeTxns.filter((t) => String(t.side || '').toLowerCase() === 'buy');
+  const sells = safeTxns.filter((t) => String(t.side || '').toLowerCase() === 'sell');
+  const totalBuyVolume = buys.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+  const totalSellVolume = sells.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+  const totalVolume = totalBuyVolume + totalSellVolume;
+  const totalFeesPaid = safeTxns.reduce((sum, t) => sum + Number(t.fee || 0), 0);
+  const realizedPnL = safeTxns.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+
+  const profitableTrades = sells.filter((t) => Number(t.pnl || 0) > 0).length;
+  const lossTrades = sells.filter((t) => Number(t.pnl || 0) < 0).length;
+  const winRate = sells.length > 0
+    ? Number(((profitableTrades / sells.length) * 100).toFixed(1))
+    : (safeTxns.length > 0 ? 100 : 0);
+
+  const cashBalance = typeof portfolio?.cash === 'number'
+    ? Number(portfolio.cash.toFixed(2))
+    : 10000;
+
+  const positions = Array.isArray(portfolio?.positions) ? portfolio.positions : [];
+  const safeWatchlist = Array.isArray(watchlist) ? watchlist : [];
+  const safeAlerts = Array.isArray(alerts) ? alerts : [];
+
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    createdAt: u.createdAt,
+    cashBalance,
+    tradeCount: safeTxns.length,
+    buyCount: buys.length,
+    sellCount: sells.length,
+    totalBuyVolume: Number(totalBuyVolume.toFixed(2)),
+    totalSellVolume: Number(totalSellVolume.toFixed(2)),
+    totalVolume: Number(totalVolume.toFixed(2)),
+    totalFeesPaid: Number(totalFeesPaid.toFixed(2)),
+    realizedPnL: Number(realizedPnL.toFixed(2)),
+    profitableTrades,
+    lossTrades,
+    winRate,
+    openPositions: positions.length,
+    positions,
+    watchlistCount: safeWatchlist.length,
+    watchlist: safeWatchlist,
+    alertCount: safeAlerts.length,
+    alerts: safeAlerts,
+    allTrades: safeTxns,
+    recentTrades: safeTxns.slice(0, 10),
+  };
+};
+
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
   try {
     const mongoAvailable = await ensureMongoReady();
@@ -1065,29 +1119,13 @@ app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
       }).lean();
 
       const enriched = allUsers.map((u) => {
-        const txns = Array.isArray(u.transactions) ? u.transactions : [];
-        const buys = txns.filter((t) => String(t.side || '').toLowerCase() === 'buy');
-        const sells = txns.filter((t) => String(t.side || '').toLowerCase() === 'sell');
-        const totalBuyVolume = buys.reduce((sum, t) => sum + Number(t.quote || 0), 0);
-        const totalSellVolume = sells.reduce((sum, t) => sum + Number(t.quote || 0), 0);
-        const realizedPnL = txns.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
-
-        return {
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          createdAt: u.createdAt,
-          tradeCount: txns.length,
-          buyCount: buys.length,
-          sellCount: sells.length,
-          totalBuyVolume: Number(totalBuyVolume.toFixed(2)),
-          totalSellVolume: Number(totalSellVolume.toFixed(2)),
-          realizedPnL: Number(realizedPnL.toFixed(2)),
-          openPositions: Array.isArray(u.portfolio?.positions) ? u.portfolio.positions.length : 0,
-          watchlistCount: Array.isArray(u.watchlist) ? u.watchlist.length : 0,
-          alertCount: Array.isArray(u.alerts) ? u.alerts.length : 0,
-          recentTrades: txns.slice(0, 10),
-        };
+        return formatUserAdminData(
+          u,
+          u.transactions,
+          u.portfolio,
+          u.watchlist,
+          u.alerts
+        );
       });
 
       return res.json({ users: enriched, total: enriched.length, source: 'mongodb' });
@@ -1096,31 +1134,17 @@ app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
     // In-memory fallback
     const allUsers = Array.from(users.values()).map((u) => {
       const txns = transactions.get(u.id) || [];
-      const buys = txns.filter((t) => String(t.side || '').toLowerCase() === 'buy');
-      const sells = txns.filter((t) => String(t.side || '').toLowerCase() === 'sell');
-      const totalBuyVolume = buys.reduce((sum, t) => sum + Number(t.quote || 0), 0);
-      const totalSellVolume = sells.reduce((sum, t) => sum + Number(t.quote || 0), 0);
-      const realizedPnL = txns.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
-      const portfolio = portfolios.get(u.id) || { positions: [] };
+      const portfolio = portfolios.get(u.id) || { positions: [], cash: 10000 };
       const userAlerts = alerts.get(u.id) || [];
-      const watchlist = watchlists.get(u.id) || [];
+      const userWatchlist = watchlists.get(u.id) || [];
 
-      return {
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        createdAt: u.createdAt,
-        tradeCount: txns.length,
-        buyCount: buys.length,
-        sellCount: sells.length,
-        totalBuyVolume: Number(totalBuyVolume.toFixed(2)),
-        totalSellVolume: Number(totalSellVolume.toFixed(2)),
-        realizedPnL: Number(realizedPnL.toFixed(2)),
-        openPositions: Array.isArray(portfolio.positions) ? portfolio.positions.length : 0,
-        watchlistCount: watchlist.length,
-        alertCount: userAlerts.length,
-        recentTrades: txns.slice(0, 10),
-      };
+      return formatUserAdminData(
+        u,
+        txns,
+        portfolio,
+        userWatchlist,
+        userAlerts
+      );
     });
 
     return res.json({ users: allUsers, total: allUsers.length, source: 'memory' });
@@ -1135,33 +1159,66 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     const mongoAvailable = await ensureMongoReady();
     let totalUsers = 0;
     let totalTrades = 0;
+    let totalBuyVolume = 0;
+    let totalSellVolume = 0;
     let totalVolume = 0;
     let totalPnL = 0;
+    let totalFees = 0;
+    let activeTradersCount = 0;
+    let totalOpenPositions = 0;
 
     if (mongoAvailable && BitNexaUser) {
-      const allUsers = await BitNexaUser.find({}, { transactions: 1 }).lean();
+      const allUsers = await BitNexaUser.find({}, { transactions: 1, portfolio: 1 }).lean();
       totalUsers = allUsers.length;
       allUsers.forEach((u) => {
         const txns = Array.isArray(u.transactions) ? u.transactions : [];
+        if (txns.length > 0) activeTradersCount++;
+        const buys = txns.filter((t) => String(t.side || '').toLowerCase() === 'buy');
+        const sells = txns.filter((t) => String(t.side || '').toLowerCase() === 'sell');
         totalTrades += txns.length;
-        totalVolume += txns.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+        const bVol = buys.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+        const sVol = sells.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+        totalBuyVolume += bVol;
+        totalSellVolume += sVol;
+        totalVolume += (bVol + sVol);
         totalPnL += txns.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+        totalFees += txns.reduce((sum, t) => sum + Number(t.fee || 0), 0);
+        if (Array.isArray(u.portfolio?.positions)) {
+          totalOpenPositions += u.portfolio.positions.length;
+        }
       });
     } else {
       totalUsers = users.size;
       users.forEach((u) => {
         const txns = transactions.get(u.id) || [];
+        if (txns.length > 0) activeTradersCount++;
+        const buys = txns.filter((t) => String(t.side || '').toLowerCase() === 'buy');
+        const sells = txns.filter((t) => String(t.side || '').toLowerCase() === 'sell');
         totalTrades += txns.length;
-        totalVolume += txns.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+        const bVol = buys.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+        const sVol = sells.reduce((sum, t) => sum + Number(t.quote || 0), 0);
+        totalBuyVolume += bVol;
+        totalSellVolume += sVol;
+        totalVolume += (bVol + sVol);
         totalPnL += txns.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+        totalFees += txns.reduce((sum, t) => sum + Number(t.fee || 0), 0);
+        const port = portfolios.get(u.id);
+        if (Array.isArray(port?.positions)) {
+          totalOpenPositions += port.positions.length;
+        }
       });
     }
 
     return res.json({
       totalUsers,
       totalTrades,
+      totalBuyVolume: Number(totalBuyVolume.toFixed(2)),
+      totalSellVolume: Number(totalSellVolume.toFixed(2)),
       totalVolume: Number(totalVolume.toFixed(2)),
       totalPnL: Number(totalPnL.toFixed(2)),
+      totalFees: Number(totalFees.toFixed(2)),
+      activeTradersCount,
+      totalOpenPositions,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
