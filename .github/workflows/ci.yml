@@ -24,6 +24,9 @@ jobs:
         run: npm install --prefix backend
 
       - name: Run backend tests
+        env:
+          MONGODB_URI: ""
+          JWT_SECRET: "bitnexa-ci-secret"
         run: npm --prefix backend test
 
       - name: Install frontend dependencies

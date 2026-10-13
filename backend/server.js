@@ -844,6 +844,44 @@ app.post('/api/transactions', authenticate, async (req, res) => {
   return res.status(201).json({ message: 'Transaction recorded.', transaction });
 });
 
+app.get('/api/notifications', authenticate, async (req, res) => {
+  try {
+    let userAlerts = [];
+    let userTransactions = [];
+
+    const mongoAvailable = await ensureMongoReady();
+    if (mongoAvailable && BitNexaUser) {
+      const userDoc = await ensureUserState(req.user.id);
+      userAlerts = Array.isArray(userDoc?.alerts) ? userDoc.alerts : [];
+      userTransactions = Array.isArray(userDoc?.transactions) ? userDoc.transactions : [];
+    } else {
+      ensureMemoryUserState(req.user.id);
+      userAlerts = alerts.get(req.user.id) || [];
+      userTransactions = transactions.get(req.user.id) || [];
+    }
+
+    const notifications = [
+      ...userAlerts.map((a) => ({
+        id: a.id,
+        type: 'alert',
+        message: `Price alert set for ${String(a.coinId || '').toUpperCase()} at $${a.targetPrice}`,
+        timestamp: a.createdAt || new Date().toISOString(),
+      })),
+      ...userTransactions.map((t) => ({
+        id: t.id,
+        type: 'trade',
+        message: `${String(t.side || '').toUpperCase()} order filled for ${t.amount} ${t.symbol}`,
+        timestamp: t.timestamp || new Date().toISOString(),
+      })),
+    ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    return res.json({ notifications });
+  } catch (error) {
+    console.error('Notifications fetch failed:', error.message);
+    return res.status(500).json({ error: 'Unable to fetch notifications.' });
+  }
+});
+
 app.get('/api/market', async (req, res) => {
   const ids = (req.query.ids || DEFAULT_IDS.join(',')).split(',').filter(Boolean);
   const data = await getMarketData(ids);
