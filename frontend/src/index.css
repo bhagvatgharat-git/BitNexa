@@ -731,3 +731,78 @@ body[data-theme='light'] .empty-state { background: linear-gradient(180deg, rgba
 .th-dim-text { color: var(--muted); }
 .th-status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 600; color: #94a3b8; background: rgba(255, 255, 255, 0.04); padding: 3px 8px; border-radius: 20px; }
 .th-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+
+/* Interactive Dashboard Coin Cards & Return Navigation */
+.clickable-coin-card {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.22s ease, background 0.2s ease;
+}
+
+.clickable-coin-card:hover {
+  transform: translateY(-2px) scale(1.012);
+  border-color: rgba(56, 189, 248, 0.55) !important;
+  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.4), 0 0 18px rgba(56, 189, 248, 0.18) !important;
+  background: rgba(18, 38, 54, 0.98) !important;
+}
+
+.clickable-coin-card:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.clickable-coin-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@keyframes returnHighlightPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.85);
+    border-color: #38bdf8 !important;
+    transform: scale(1.025);
+  }
+  40% {
+    box-shadow: 0 0 25px 8px rgba(56, 189, 248, 0.5);
+    border-color: #38bdf8 !important;
+    transform: scale(1.025);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+    border-color: var(--border) !important;
+    transform: scale(1);
+  }
+}
+
+@keyframes returnHighlightPulseLight {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.85);
+    border-color: #2563eb !important;
+    transform: scale(1.025);
+  }
+  40% {
+    box-shadow: 0 0 25px 8px rgba(37, 99, 235, 0.45);
+    border-color: #2563eb !important;
+    transform: scale(1.025);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    border-color: rgba(99, 129, 180, 0.2) !important;
+    transform: scale(1);
+  }
+}
+
+.just-returned-highlight {
+  animation: returnHighlightPulse 1.8s ease-out forwards;
+}
+
+body[data-theme='light'] .clickable-coin-card:hover {
+  border-color: rgba(37, 99, 235, 0.5) !important;
+  box-shadow: 0 10px 24px -4px rgba(99, 129, 180, 0.22), 0 0 16px rgba(37, 99, 235, 0.16) !important;
+  background: rgba(235, 244, 255, 0.98) !important;
+}
+
+body[data-theme='light'] .just-returned-highlight {
+  animation: returnHighlightPulseLight 1.8s ease-out forwards;
+}
+

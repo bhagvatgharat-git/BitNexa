@@ -102,6 +102,7 @@ function App() {
   const [quickFilter, setQuickFilter] = useState('all');
   const [selectedNav, setSelectedNav] = useState('Dashboard');
   const [lastNonMarketNav, setLastNonMarketNav] = useState('Dashboard');
+  const [lastClickedCoinElementId, setLastClickedCoinElementId] = useState(null);
   const [marketTab, setMarketTab] = useState('overview');
   const [compareCoinIds, setCompareCoinIds] = useState(['bitcoin', 'ethereum', '']);
   const [currency, setCurrency] = useState('usd');
@@ -357,6 +358,53 @@ function App() {
     if (selectedNav !== 'Markets') {
       setLastNonMarketNav(selectedNav);
       setSelectedNav('Markets');
+    }
+  };
+
+  const handleDashboardCoinClick = (coinId, elementId) => {
+    if (!coinId) return;
+    setLastClickedCoinElementId(elementId || `dashboard-coin-trending-${coinId}`);
+    setLastNonMarketNav('Dashboard');
+    setSelectedId(coinId);
+    setTradeCoinId(coinId);
+    setDetailExpanded(true);
+    setMarketTab('overview');
+    setCoinWorkspaceFullscreen(false);
+    setSelectedNav('Markets');
+
+    // On mobile screens, smoothly scroll down to the detail panel
+    setTimeout(() => {
+      if (typeof window !== 'undefined' && window.innerWidth <= 900) {
+        const detailsPanel = document.querySelector('.details-panel');
+        if (detailsPanel) {
+          detailsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }, 120);
+  };
+
+  const handleBackFromCoinDetail = () => {
+    const returnNav = lastNonMarketNav || 'Dashboard';
+    setCoinWorkspaceFullscreen(false);
+    setSelectedNav(returnNav);
+
+    if (returnNav === 'Dashboard') {
+      setTimeout(() => {
+        const target = (lastClickedCoinElementId && document.getElementById(lastClickedCoinElementId))
+          || (selectedId && document.getElementById(`dashboard-coin-trending-${selectedId}`))
+          || (selectedId && document.getElementById(`dashboard-coin-gainer-${selectedId}`))
+          || (selectedId && document.getElementById(`dashboard-coin-loser-${selectedId}`))
+          || (selectedId && document.getElementById(`dashboard-coin-marketcap-${selectedId}`))
+          || (selectedId && document.getElementById(`dashboard-coin-mover-${selectedId}`));
+
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('just-returned-highlight');
+          setTimeout(() => {
+            target.classList.remove('just-returned-highlight');
+          }, 2000);
+        }
+      }, 120);
     }
   };
 
@@ -1732,7 +1780,7 @@ function App() {
               <button
                 type="button"
                 className="sidebar-market-back"
-                onClick={() => setSelectedNav(lastNonMarketNav || 'Dashboard')}
+                onClick={handleBackFromCoinDetail}
               >
                 ← Back
               </button>
@@ -2032,21 +2080,39 @@ function App() {
                 </div>
 
                 <div className="rank-list">
-                  {(trending.length ? trending : coins.slice(0, 4)).map((coin, index) => (
-                    <div key={coin.id || index} className="mini-rank-item">
-                      <div className="coin-meta">
-                        <span className="market-rank">#{index + 1}</span>
-                        <img src={getSafeCoinImage(coin || selectedCoin)} alt={coin.name || 'coin'} />
-                        <div>
-                          <strong>{coin.name || coin.symbol?.toUpperCase() || 'BTC'}</strong>
-                          <span>{(coin.symbol || '').toUpperCase() || 'BTC'}</span>
+                  {(trending.length ? trending : coins.slice(0, 4)).map((coin, index) => {
+                    const coinId = coin.id || (coin.symbol || '').toLowerCase();
+                    const domId = `dashboard-coin-trending-${coinId}`;
+                    return (
+                      <div
+                        key={coin.id || index}
+                        id={domId}
+                        className="mini-rank-item clickable-coin-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleDashboardCoinClick(coinId, domId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleDashboardCoinClick(coinId, domId);
+                          }
+                        }}
+                        title={`Open ${coin.name || 'coin'} chart & live details`}
+                      >
+                        <div className="coin-meta">
+                          <span className="market-rank">#{index + 1}</span>
+                          <img src={getSafeCoinImage(coin || selectedCoin)} alt={coin.name || 'coin'} />
+                          <div>
+                            <strong>{coin.name || coin.symbol?.toUpperCase() || 'BTC'}</strong>
+                            <span>{(coin.symbol || '').toUpperCase() || 'BTC'}</span>
+                          </div>
                         </div>
+                        <span className={coin.percent_change_24h >= 0 || coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                          {formatPercent(coin.percent_change_24h ?? coin.price_change_percentage_24h ?? 0)}
+                        </span>
                       </div>
-                      <span className={coin.percent_change_24h >= 0 || coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                        {formatPercent(coin.percent_change_24h ?? coin.price_change_percentage_24h ?? 0)}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2057,18 +2123,35 @@ function App() {
                 </div>
 
                 <div className="rank-list">
-                  {gainers.map((coin) => (
-                    <div key={coin.id} className="mini-rank-item">
-                      <div className="coin-meta">
-                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
-                        <div>
-                          <strong>{coin.name}</strong>
-                          <span>{coin.symbol.toUpperCase()}</span>
+                  {gainers.map((coin) => {
+                    const domId = `dashboard-coin-gainer-${coin.id}`;
+                    return (
+                      <div
+                        key={coin.id}
+                        id={domId}
+                        className="mini-rank-item clickable-coin-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleDashboardCoinClick(coin.id, domId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleDashboardCoinClick(coin.id, domId);
+                          }
+                        }}
+                        title={`Open ${coin.name} chart & live details`}
+                      >
+                        <div className="coin-meta">
+                          <img src={getSafeCoinImage(coin)} alt={coin.name} />
+                          <div>
+                            <strong>{coin.name}</strong>
+                            <span>{coin.symbol.toUpperCase()}</span>
+                          </div>
                         </div>
+                        <span className="positive">{formatPercent(coin.price_change_percentage_24h)}</span>
                       </div>
-                      <span className="positive">{formatPercent(coin.price_change_percentage_24h)}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2079,18 +2162,35 @@ function App() {
                 </div>
 
                 <div className="rank-list">
-                  {losers.map((coin) => (
-                    <div key={coin.id} className="mini-rank-item">
-                      <div className="coin-meta">
-                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
-                        <div>
-                          <strong>{coin.name}</strong>
-                          <span>{coin.symbol.toUpperCase()}</span>
+                  {losers.map((coin) => {
+                    const domId = `dashboard-coin-loser-${coin.id}`;
+                    return (
+                      <div
+                        key={coin.id}
+                        id={domId}
+                        className="mini-rank-item clickable-coin-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleDashboardCoinClick(coin.id, domId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleDashboardCoinClick(coin.id, domId);
+                          }
+                        }}
+                        title={`Open ${coin.name} chart & live details`}
+                      >
+                        <div className="coin-meta">
+                          <img src={getSafeCoinImage(coin)} alt={coin.name} />
+                          <div>
+                            <strong>{coin.name}</strong>
+                            <span>{coin.symbol.toUpperCase()}</span>
+                          </div>
                         </div>
+                        <span className="negative">{formatPercent(coin.price_change_percentage_24h)}</span>
                       </div>
-                      <span className="negative">{formatPercent(coin.price_change_percentage_24h)}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -2101,19 +2201,36 @@ function App() {
                 </div>
 
                 <div className="rank-list">
-                  {marketCapLeaders.map((coin, index) => (
-                    <div key={coin.id} className="mini-rank-item">
-                      <div className="coin-meta">
-                        <span className="market-rank">#{index + 1}</span>
-                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
-                        <div>
-                          <strong>{coin.name}</strong>
-                          <span>{coin.symbol.toUpperCase()}</span>
+                  {marketCapLeaders.map((coin, index) => {
+                    const domId = `dashboard-coin-marketcap-${coin.id}`;
+                    return (
+                      <div
+                        key={coin.id}
+                        id={domId}
+                        className="mini-rank-item clickable-coin-card"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleDashboardCoinClick(coin.id, domId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleDashboardCoinClick(coin.id, domId);
+                          }
+                        }}
+                        title={`Open ${coin.name} chart & live details`}
+                      >
+                        <div className="coin-meta">
+                          <span className="market-rank">#{index + 1}</span>
+                          <img src={getSafeCoinImage(coin)} alt={coin.name} />
+                          <div>
+                            <strong>{coin.name}</strong>
+                            <span>{coin.symbol.toUpperCase()}</span>
+                          </div>
                         </div>
+                        <strong>{formatCompact(coin.market_cap)}</strong>
                       </div>
-                      <strong>{formatCompact(coin.market_cap)}</strong>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </section>
@@ -2133,20 +2250,37 @@ function App() {
                   </div>
                 ) : (
                   <div className="mover-list">
-                    {topMovers.map((coin) => (
-                      <div key={coin.id} className="mover-item">
-                        <div className="coin-meta">
-                          <img src={getSafeCoinImage(coin)} alt={coin.name} />
-                          <div>
-                            <strong>{coin.name}</strong>
-                            <span>{coin.symbol.toUpperCase()}</span>
+                    {topMovers.map((coin) => {
+                      const domId = `dashboard-coin-mover-${coin.id}`;
+                      return (
+                        <div
+                          key={coin.id}
+                          id={domId}
+                          className="mover-item clickable-coin-card"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => handleDashboardCoinClick(coin.id, domId)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleDashboardCoinClick(coin.id, domId);
+                            }
+                          }}
+                          title={`Open ${coin.name} chart & live details`}
+                        >
+                          <div className="coin-meta">
+                            <img src={getSafeCoinImage(coin)} alt={coin.name} />
+                            <div>
+                              <strong>{coin.name}</strong>
+                              <span>{coin.symbol.toUpperCase()}</span>
+                            </div>
                           </div>
+                          <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
+                            {formatPercent(coin.price_change_percentage_24h)}
+                          </span>
                         </div>
-                        <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                          {formatPercent(coin.price_change_percentage_24h)}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2247,7 +2381,7 @@ function App() {
                         <button
                           type="button"
                           className="coin-back-btn"
-                          onClick={() => setSelectedNav(lastNonMarketNav || 'Dashboard')}
+                          onClick={handleBackFromCoinDetail}
                           title="Back to Dashboard"
                         >
                           ← Back
@@ -2498,10 +2632,7 @@ function App() {
                             <button
                               type="button"
                               className="coin-back-btn"
-                              onClick={() => {
-                                setCoinWorkspaceFullscreen(false);
-                                setSelectedNav(lastNonMarketNav || 'Dashboard');
-                              }}
+                              onClick={handleBackFromCoinDetail}
                               title="Go back to Dashboard"
                             >
                               ← Back
@@ -2729,10 +2860,7 @@ function App() {
                       <button
                         type="button"
                         className="ghost-btn demo-back-button"
-                        onClick={() => {
-                          setCoinWorkspaceFullscreen(false);
-                          setSelectedNav(lastNonMarketNav || 'Dashboard');
-                        }}
+                        onClick={handleBackFromCoinDetail}
                       >
                         ← Back
                       </button>
