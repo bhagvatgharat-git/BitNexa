@@ -314,13 +314,22 @@ function App() {
   };
 
   const openCoinWorkspace = (coinId) => {
+    // If user clicks the already-selected coin, open fullscreen chart workspace
+    if (selectedId === coinId && selectedNav === 'Markets' && !coinWorkspaceFullscreen) {
+      setLastNonMarketNav((prev) => (prev !== 'Markets' ? prev : 'Dashboard'));
+      setCoinWorkspaceFullscreen(true);
+      return;
+    }
+
+    // First click: select the coin to display in the right-side detail & chart panel
     setSelectedId(coinId);
-    // Remember which page the user was on before jumping into fullscreen chart
-    setLastNonMarketNav((prev) => (prev !== 'Markets' ? prev : 'Dashboard'));
-    setSelectedNav('Markets');
-    setMarketTab('overview');
+    setTradeCoinId(coinId);
     setDetailExpanded(true);
-    setCoinWorkspaceFullscreen(true);
+    setMarketTab('overview');
+    if (selectedNav !== 'Markets') {
+      setLastNonMarketNav(selectedNav);
+      setSelectedNav('Markets');
+    }
   };
 
   useEffect(() => {
