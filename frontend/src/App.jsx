@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -204,6 +204,38 @@ function App() {
     (Number(value) || 0) * (currencyRates[currency] || 1)
   );
   const chartCoinSymbol = coins.find((coin) => coin.id === selectedId)?.symbol?.toUpperCase();
+
+  const notifiedAlertsRef = useRef(new Set());
+
+  // Real-time price alert trigger monitor
+  useEffect(() => {
+    if (!alerts.length || !coins.length) return;
+
+    alerts.forEach((alert) => {
+      const coin = coins.find((c) => c.id === alert.coinId);
+      if (!coin || !Number.isFinite(Number(coin.current_price))) return;
+
+      const targetPrice = Number(alert.targetPrice);
+      const currentPrice = Number(coin.current_price);
+      if (!Number.isFinite(targetPrice) || targetPrice <= 0) return;
+
+      const alertKey = `${alert.id || alert._id || alert.coinId}-${targetPrice}-${alert.direction}`;
+      if (notifiedAlertsRef.current.has(alertKey)) return;
+
+      const triggered = alert.direction === 'above'
+        ? currentPrice >= targetPrice
+        : currentPrice <= targetPrice;
+
+      if (triggered) {
+        notifiedAlertsRef.current.add(alertKey);
+        setToast({
+          id: Date.now() + Math.random(),
+          type: 'success',
+          text: `🔔 Price Alert: ${coin.name} (${coin.symbol.toUpperCase()}) ${alert.direction === 'above' ? 'rose above' : 'fell below'} target ${formatCurrency(targetPrice)}! Current: ${formatCurrency(currentPrice)}.`,
+        });
+      }
+    });
+  }, [alerts, coins, formatCurrency]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -1203,6 +1235,24 @@ function App() {
         price: currentCoin.current_price,
       });
       setPaperWallet(result.wallet);
+
+      if (token) {
+        marketApi.saveTransaction(token, {
+          coinId: result.trade.coinId,
+          symbol: result.trade.symbol,
+          type: result.trade.side,
+          amount: result.trade.amount,
+          price: result.trade.price,
+          fee: result.trade.fee,
+        }).catch(() => {});
+
+        marketApi.savePortfolio(token, {
+          coinId: result.trade.coinId,
+          amount: result.trade.side === 'buy' ? result.trade.amount : -result.trade.amount,
+          averagePrice: result.trade.price,
+        }).catch(() => {});
+      }
+
       setToast({
         id: Date.now(),
         type: 'success',
@@ -1241,6 +1291,17 @@ function App() {
       });
 
       setPaperWallet(result.wallet);
+
+      if (token) {
+        marketApi.saveTransaction(token, {
+          coinId: result.trade.coinId,
+          symbol: result.trade.symbol,
+          type: result.trade.side,
+          amount: result.trade.amount,
+          price: result.trade.price,
+          fee: result.trade.fee,
+        }).catch(() => {});
+      }
 
       const isLong = (position.side || 'buy') === 'buy';
       const pnl = Number(result.trade.pnl !== undefined
@@ -2222,6 +2283,8 @@ function App() {
                       <div><span>24h Volume</span><strong>{formatCompact(selectedCoin.total_volume)}</strong></div>
                       <div><span>High / Low</span><strong>{formatCurrency(selectedCoin.high_24h)} / {formatCurrency(selectedCoin.low_24h)}</strong></div>
                       <div><span>Dominance</span><strong>{formatPercent((selectedCoin.market_cap / Math.max(globalStats.totalMarketCap, 1)) * 100)}</strong></div>
+                      {selectedCoin.ath && <div><span>All-Time High</span><strong>{formatCurrency(selectedCoin.ath)}</strong></div>}
+                      {selectedCoin.circulating_supply && <div><span>Circulating Supply</span><strong>{formatCompact(selectedCoin.circulating_supply)} {selectedCoin.symbol.toUpperCase()}</strong></div>}
                     </div>
                   </section>
                 )}

@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 export default function TradeHistorySection({
   selectedNav,
   transactions = [],
@@ -9,6 +11,8 @@ export default function TradeHistorySection({
   formatCurrency,
   setSelectedNav,
 }) {
+  const [searchQuery, setSearchQuery] = useState('');
+
   if (!user) {
     return (
       <section className={`trade-history-section ${selectedNav === 'Trade History' ? 'section-active' : 'section-hidden'}`}>
@@ -45,6 +49,14 @@ export default function TradeHistorySection({
     if (tradeHistoryFilter === 'buy') return t.side === 'buy';
     if (tradeHistoryFilter === 'sell') return t.side === 'sell';
     return true;
+  });
+
+  const displayedTrades = filteredTrades.filter((t) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.trim().toLowerCase();
+    const symbol = (t.symbol || '').toLowerCase();
+    const coinId = (t.coinId || '').toLowerCase();
+    return symbol.includes(q) || coinId.includes(q);
   });
 
   const totalTradesCount = uniqueTrades.length;
@@ -97,6 +109,26 @@ export default function TradeHistorySection({
             </div>
 
             <div className="th-filters-row">
+              <div className="th-search-box" style={{ display: 'flex', alignItems: 'center', background: 'var(--card, rgba(17,30,42,0.6))', border: '1px solid var(--border)', borderRadius: '10px', padding: '6px 12px', gap: '8px', minWidth: '220px' }}>
+                <span style={{ fontSize: '0.85rem', opacity: 0.7 }}>🔍</span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search coin or symbol…"
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text)', outline: 'none', width: '100%', fontSize: '0.85rem' }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.85rem', padding: 0 }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
               <div className="th-pill-group">
                 <button
                   type="button"
@@ -123,19 +155,34 @@ export default function TradeHistorySection({
             </div>
           </div>
 
-          {filteredTrades.length === 0 ? (
+          {displayedTrades.length === 0 ? (
             <div className="th-empty-state">
               <span className="th-empty-icon">📋</span>
-              <h4>No trades recorded yet</h4>
-              <p>Buy or sell any asset in the market view to start tracking your trade execution history here.</p>
-              <button
-                type="button"
-                className="primary-btn"
-                style={{ marginTop: '1rem' }}
-                onClick={() => setSelectedNav('Markets')}
-              >
-                Explore Markets &amp; Trade
-              </button>
+              <h4>{searchQuery ? `No trades match "${searchQuery}"` : 'No trades recorded yet'}</h4>
+              <p>
+                {searchQuery
+                  ? 'Try clearing your search query or switching filters.'
+                  : 'Buy or sell any asset in the market view to start tracking your trade execution history here.'}
+              </p>
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  style={{ marginTop: '1rem' }}
+                  onClick={() => setSearchQuery('')}
+                >
+                  Clear search
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="primary-btn"
+                  style={{ marginTop: '1rem' }}
+                  onClick={() => setSelectedNav('Markets')}
+                >
+                  Explore Markets &amp; Trade
+                </button>
+              )}
             </div>
           ) : (
             <div className="th-table-wrap">
@@ -147,18 +194,20 @@ export default function TradeHistorySection({
                     <th>Side</th>
                     <th>Execution Price</th>
                     <th>Filled Quantity</th>
+                    <th>Fee (0.1%)</th>
                     <th>Total Value</th>
                     <th>Realized P&amp;L</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredTrades.map((t, index) => {
+                  {displayedTrades.map((t, index) => {
                     const isBuy = t.side === 'buy';
                     const tradeSymbol = (t.symbol || 'BTC').toUpperCase();
                     const tradePrice = Number(t.price || 0);
                     const tradeAmount = Number(t.amount || 0);
                     const tradeTotal = Number(t.quote) || tradePrice * tradeAmount;
+                    const feeVal = Number(t.fee) || (tradeTotal * 0.001);
                     const hasPnl = t.pnl !== undefined && t.pnl !== null;
                     const pnlVal = Number(t.pnl || 0);
                     const dateObj = t.timestamp ? new Date(t.timestamp) : new Date();
@@ -186,6 +235,7 @@ export default function TradeHistorySection({
                         </td>
                         <td className="th-price-cell">{formatCurrency(tradePrice)}</td>
                         <td>{tradeAmount.toFixed(6)} {tradeSymbol}</td>
+                        <td className="th-dim-text">{formatCurrency(feeVal)}</td>
                         <td className="th-value-cell">{formatCurrency(tradeTotal)}</td>
                         <td>
                           {hasPnl ? (

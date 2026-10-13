@@ -43,48 +43,74 @@ export function executePaperTrade(wallet, order) {
   const trades = Array.isArray(wallet?.trades) ? wallet.trades : [];
   const amount = Number(order?.amount);
   const price = Number(order?.price);
-  const side = String(order?.side || '').toLowerCase(); // 'buy' (Long/Uptrend) or 'sell' (Short/Downtrend)
+  const side = String(order?.side || '').toLowerCase(); // 'buy' or 'sell'
   const coinId = String(order?.coinId || '').trim();
   const symbol = String(order?.symbol || '').trim().toUpperCase();
 
   if (!Number.isFinite(cash) || cash < 0) throw new Error('Demo wallet balance is invalid.');
   if (!coinId || !symbol) throw new Error('Select a valid market before trading.');
-  if (!['buy', 'sell'].includes(side)) throw new Error('Choose buy (Long) or sell (Short).');
+  if (!['buy', 'sell'].includes(side)) throw new Error('Choose buy or sell.');
   if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a quantity greater than zero.');
   if (!Number.isFinite(price) || price <= 0) throw new Error('A live market price is not available yet.');
 
   const quote = roundCash(amount * price);
   const fee = roundCash(quote * 0.001);
-  const totalMarginRequired = quote + fee;
 
-  if (totalMarginRequired > cash) {
-    throw new Error(`Not enough demo cash (${cash}) for this order ($${totalMarginRequired} required incl. 0.1% fee).`);
-  }
-
-  let nextCash = roundCash(cash - totalMarginRequired);
+  let nextCash = cash;
   let nextPositions = positions.map((position) => ({ ...position }));
+  let tradePnl = 0;
 
-  // Find if an existing position with the SAME side exists
-  const existingPosition = nextPositions.find((p) => p.coinId === coinId && (p.side || 'buy') === side);
+  if (side === 'buy') {
+    const totalRequired = quote + fee;
+    if (totalRequired > cash) {
+      throw new Error(`Insufficient virtual cash ($${cash.toLocaleString('en-US', { minimumFractionDigits: 2 })}) for this buy order ($${totalRequired.toFixed(2)} required incl. 0.1% fee).`);
+    }
 
-  if (existingPosition) {
-    const prevAmount = Number(existingPosition.amount || 0);
-    const nextAmount = roundQuantity(prevAmount + amount);
-    const prevCost = prevAmount * Number(existingPosition.averagePrice || 0);
-    const averagePrice = (prevCost + quote) / nextAmount;
+    nextCash = roundCash(cash - totalRequired);
 
-    nextPositions = nextPositions.map((p) => (p === existingPosition
-      ? { ...p, amount: nextAmount, averagePrice, margin: roundCash((p.margin || 0) + quote) }
-      : p));
+    const existingPosition = nextPositions.find((p) => p.coinId === coinId);
+    if (existingPosition) {
+      const prevAmount = Number(existingPosition.amount || 0);
+      const nextAmount = roundQuantity(prevAmount + amount);
+      const prevCost = prevAmount * Number(existingPosition.averagePrice || 0);
+      const averagePrice = (prevCost + quote) / nextAmount;
+
+      nextPositions = nextPositions.map((p) => (p === existingPosition
+        ? { ...p, amount: nextAmount, averagePrice, margin: roundCash((p.margin || 0) + quote) }
+        : p));
+    } else {
+      nextPositions.push({
+        coinId,
+        symbol,
+        side: 'buy',
+        amount: roundQuantity(amount),
+        averagePrice: price,
+        margin: quote,
+      });
+    }
   } else {
-    nextPositions.push({
-      coinId,
-      symbol,
-      side, // 'buy' (Long) or 'sell' (Short)
-      amount: roundQuantity(amount),
-      averagePrice: price,
-      margin: quote,
-    });
+    // SELL: Validate available coin holdings
+    const existingPosition = nextPositions.find((p) => p.coinId === coinId);
+    const availableAmount = Number(existingPosition?.amount || 0);
+
+    if (!existingPosition || availableAmount < amount) {
+      throw new Error(`Insufficient ${symbol} holdings to sell. You currently hold ${availableAmount} ${symbol}.`);
+    }
+
+    const netProceeds = roundCash(quote - fee);
+    nextCash = roundCash(cash + netProceeds);
+
+    const costBasis = roundCash(amount * Number(existingPosition.averagePrice || price));
+    tradePnl = roundCash(netProceeds - costBasis);
+
+    const remainingAmount = roundQuantity(availableAmount - amount);
+    if (remainingAmount <= 0.00000001) {
+      nextPositions = nextPositions.filter((p) => p !== existingPosition);
+    } else {
+      nextPositions = nextPositions.map((p) => (p === existingPosition
+        ? { ...p, amount: remainingAmount, margin: roundCash(remainingAmount * Number(p.averagePrice || price)) }
+        : p));
+    }
   }
 
   const trade = {
@@ -96,6 +122,7 @@ export function executePaperTrade(wallet, order) {
     price,
     quote,
     fee,
+    pnl: tradePnl,
     status: 'filled',
     timestamp: new Date().toISOString(),
   };
