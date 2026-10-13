@@ -3606,8 +3606,7 @@ body[data-theme='light'] .empty-state {
 
   .summary-grid,
   .movers-grid,
-  .insights-grid,
-  .trading-grid {
+  .insights-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -3631,16 +3630,14 @@ body[data-theme='light'] .empty-state {
   }
 
   .coin-workspace-fullscreen .trading-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
-    margin-top: 12px;
+    display: block;
+    width: 100%;
+    clear: both;
+    margin-top: 16px;
   }
 
-  .coin-workspace-fullscreen .order-panel,
-  .coin-workspace-fullscreen .candle-panel {
-    grid-column: auto;
-    grid-row: auto;
+  .coin-workspace-fullscreen .order-panel {
+    width: 100%;
   }
 }
 
