@@ -828,6 +828,7 @@ function App() {
   }, [selectedCoin]);
 
   const portfolioBreakdown = useMemo(() => {
+    if (!user) return [];
     if (portfolio.positions && portfolio.positions.length) {
       const totalValue = portfolio.positions.reduce((sum, position) => {
         const currentPrice = Number(coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice || 0);
@@ -889,7 +890,7 @@ function App() {
     return [
       { label: 'Available Demo Cash', weight: 100, value: formatCurrency(paperWallet.cash || STARTING_DEMO_CASH), color: '#38bdf8', isCash: true },
     ];
-  }, [coins, currency, currencyRates, paperWallet, portfolio]);
+  }, [coins, currency, currencyRates, paperWallet, portfolio, user]);
 
   const alertFeed = useMemo(() => {
     if (alerts.length) {
@@ -982,6 +983,21 @@ function App() {
   const estimatedSettlement = orderTotal + estimatedFee;
 
   const effectivePortfolioSummary = useMemo(() => {
+    if (!user) {
+      return {
+        totalValue: 0,
+        totalInvested: 0,
+        cash: 0,
+        openPositionsValue: 0,
+        change: 0,
+        changePercent: 0,
+        unrealizedPnl: 0,
+        unrealizedPnlPercent: 0,
+        positions: [],
+        trades: [],
+      };
+    }
+
     if (portfolio.positions && portfolio.positions.length > 0) {
       return portfolioSummary;
     }
@@ -1019,9 +1035,18 @@ function App() {
       positions: paperWallet.positions,
       trades: paperWallet.trades,
     };
-  }, [coins, paperWallet, portfolio.positions, portfolioSummary]);
+  }, [coins, paperWallet, portfolio.positions, portfolioSummary, user]);
 
   const effectivePortfolioInsights = useMemo(() => {
+    if (!user) {
+      return {
+        diversificationScore: 0,
+        concentrationRisk: 0,
+        topPerformer: 'N/A',
+        rebalancingNote: 'Log in to view portfolio insights.',
+      };
+    }
+
     if (portfolio.positions && portfolio.positions.length > 0) {
       return portfolioInsights;
     }
@@ -1076,6 +1101,11 @@ function App() {
   }, [coins, effectivePortfolioSummary, paperWallet.positions, portfolio.positions, portfolioInsights]);
 
   const handlePlaceOrder = async () => {
+    if (!user) {
+      setToast({ id: Date.now(), type: 'error', text: 'Please log in to your account before placing orders.' });
+      setAuthOpen(true);
+      return;
+    }
     const currentCoin = tradeCoin || selectedCoin;
     const parsedAmount = Number(amount);
 
@@ -1383,6 +1413,17 @@ function App() {
       allocations: [],
     });
     setAlerts([]);
+    setTransactions([]);
+    setPaperWallet(createDemoWallet());
+    try {
+      localStorage.removeItem(DEMO_WALLET_STORAGE_KEY);
+      localStorage.removeItem('bitnexa-user');
+      localStorage.removeItem('bitnexa-token');
+      localStorage.removeItem('bitnexa-watchlist');
+    } catch {}
+    if (selectedNav === 'Portfolio' || selectedNav === 'Trade History') {
+      setSelectedNav('Dashboard');
+    }
     setToast({ id: Date.now(), type: 'info', text: 'You have been logged out.' });
   };
 
@@ -1583,26 +1624,42 @@ function App() {
             </nav>
           )}
 
-          <div
-            className="sidebar-card interactive-sidebar-card"
-            onClick={() => {
-              setLastNonMarketNav('Portfolio');
-              setCoinWorkspaceFullscreen(false);
-              setSelectedNav('Portfolio');
-            }}
-            title="Open Portfolio Dashboard"
-            role="button"
-            tabIndex={0}
-          >
-            <div className="sidebar-card-top-row">
-              <span className="eyebrow">Demo Portfolio</span>
-              <span className="sidebar-portfolio-live-dot" />
+          {user ? (
+            <div
+              className="sidebar-card interactive-sidebar-card"
+              onClick={() => {
+                setLastNonMarketNav('Portfolio');
+                setCoinWorkspaceFullscreen(false);
+                setSelectedNav('Portfolio');
+              }}
+              title="Open Portfolio Dashboard"
+              role="button"
+              tabIndex={0}
+            >
+              <div className="sidebar-card-top-row">
+                <span className="eyebrow">{portfolio.positions.length ? 'Live Portfolio' : 'Demo Portfolio'}</span>
+                <span className="sidebar-portfolio-live-dot" />
+              </div>
+              <strong>{formatCurrency(effectivePortfolioSummary.totalValue)}</strong>
+              <small className={effectivePortfolioSummary.change >= 0 ? 'positive' : 'negative'}>
+                {effectivePortfolioSummary.change >= 0 ? '+' : ''}{formatCurrency(effectivePortfolioSummary.change)} ({effectivePortfolioSummary.change >= 0 ? '+' : ''}{effectivePortfolioSummary.changePercent.toFixed(2)}%)
+              </small>
             </div>
-            <strong>{formatCurrency(effectivePortfolioSummary.totalValue)}</strong>
-            <small className={effectivePortfolioSummary.change >= 0 ? 'positive' : 'negative'}>
-              {effectivePortfolioSummary.change >= 0 ? '+' : ''}{formatCurrency(effectivePortfolioSummary.change)} ({effectivePortfolioSummary.change >= 0 ? '+' : ''}{effectivePortfolioSummary.changePercent.toFixed(2)}%)
-            </small>
-          </div>
+          ) : (
+            <div
+              className="sidebar-card interactive-sidebar-card"
+              onClick={() => setAuthOpen(true)}
+              title="Login to BitNexa"
+              role="button"
+              tabIndex={0}
+            >
+              <div className="sidebar-card-top-row">
+                <span className="eyebrow">Trading Desk</span>
+              </div>
+              <strong>Sign In</strong>
+              <small>Login to track portfolio & trades</small>
+            </div>
+          )}
         </aside>
 
         <main className={`content-area ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'market-fullscreen-shell' : ''}`}>
@@ -3060,7 +3117,20 @@ function App() {
           />
 
           <section className={`portfolio-section ${selectedNav === 'Portfolio' ? 'section-active' : 'section-hidden'}`}>
-            {/* ── Demo Portfolio Summary Banner ── */}
+            {!user ? (
+              <div className="panel-card empty-state" style={{ padding: '3.5rem 2rem', textAlign: 'center', marginTop: '1rem' }}>
+                <div className="empty-icon" style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>💼</div>
+                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.4rem' }}>Sign in to view Portfolio</h3>
+                <p style={{ color: 'var(--muted)', maxWidth: '440px', margin: '0 auto 1.5rem auto' }}>
+                  Log in to track your live holdings, asset allocation, portfolio intelligence, and open positions.
+                </p>
+                <button type="button" className="primary-btn" onClick={() => setAuthOpen(true)}>
+                  Login now
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* ── Demo Portfolio Summary Banner ── */}
             <section className="panel-card demo-portfolio-banner" style={{ marginTop: '0.75rem' }}>
               <div className="demo-pf-banner-top">
                 <div className="demo-pf-title-group">
@@ -3233,6 +3303,8 @@ function App() {
 
             <PerformanceRiskGrid portfolioPerformance={portfolioPerformance} />
             <StrategyGrid strategyCards={strategyCards} />
+              </>
+            )}
           </section>
 
           {/* ── Trade History Section ── */}
@@ -3243,6 +3315,7 @@ function App() {
             tradeHistoryFilter={tradeHistoryFilter}
             setTradeHistoryFilter={setTradeHistoryFilter}
             user={user}
+            setAuthOpen={setAuthOpen}
             formatCurrency={formatCurrency}
             setSelectedNav={setSelectedNav}
           />

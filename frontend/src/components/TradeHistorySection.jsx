@@ -5,9 +5,29 @@ export default function TradeHistorySection({
   tradeHistoryFilter,
   setTradeHistoryFilter,
   user,
+  setAuthOpen,
   formatCurrency,
   setSelectedNav,
 }) {
+  if (!user) {
+    return (
+      <section className={`trade-history-section ${selectedNav === 'Trade History' ? 'section-active' : 'section-hidden'}`}>
+        <div className="trade-history-container">
+          <div className="panel-card empty-state" style={{ padding: '3.5rem 2rem', textAlign: 'center', marginTop: '1rem' }}>
+            <div className="empty-icon" style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>📋</div>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.4rem' }}>Sign in to view Trade History</h3>
+            <p style={{ color: 'var(--muted)', maxWidth: '440px', margin: '0 auto 1.5rem auto' }}>
+              Your executed fills, buy/sell audit log, and realized P&amp;L are securely tied to your BitNexa account.
+            </p>
+            <button type="button" className="primary-btn" onClick={() => setAuthOpen && setAuthOpen(true)}>
+              Login now
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   const allTrades = [
     ...(Array.isArray(transactions) ? transactions : []),
     ...(Array.isArray(paperWallet?.trades) ? paperWallet.trades : []),
@@ -63,7 +83,7 @@ export default function TradeHistorySection({
           <div className="panel-card th-stat-card">
             <span className="th-stat-label">Execution Mode</span>
             <strong className="th-stat-val" style={{ color: '#38bdf8' }}>
-              {user ? 'Account Synced' : 'Demo Trading'}
+              Account Synced
             </strong>
             <span className="th-stat-sub">Instant fills</span>
           </div>
