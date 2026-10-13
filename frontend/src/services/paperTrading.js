@@ -16,62 +16,48 @@ export function executePaperTrade(wallet, order) {
   const trades = Array.isArray(wallet?.trades) ? wallet.trades : [];
   const amount = Number(order?.amount);
   const price = Number(order?.price);
-  const side = String(order?.side || '').toLowerCase();
+  const side = String(order?.side || '').toLowerCase(); // 'buy' (Long/Uptrend) or 'sell' (Short/Downtrend)
   const coinId = String(order?.coinId || '').trim();
   const symbol = String(order?.symbol || '').trim().toUpperCase();
 
   if (!Number.isFinite(cash) || cash < 0) throw new Error('Demo wallet balance is invalid.');
   if (!coinId || !symbol) throw new Error('Select a valid market before trading.');
-  if (!['buy', 'sell'].includes(side)) throw new Error('Choose buy or sell.');
+  if (!['buy', 'sell'].includes(side)) throw new Error('Choose buy (Long) or sell (Short).');
   if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a quantity greater than zero.');
   if (!Number.isFinite(price) || price <= 0) throw new Error('A live market price is not available yet.');
 
   const quote = roundCash(amount * price);
   const fee = roundCash(quote * 0.001);
-  let nextCash = cash;
+  const totalMarginRequired = quote + fee;
+
+  if (totalMarginRequired > cash) {
+    throw new Error(`Not enough demo cash (${cash}) for this order ($${totalMarginRequired} required incl. 0.1% fee).`);
+  }
+
+  let nextCash = roundCash(cash - totalMarginRequired);
   let nextPositions = positions.map((position) => ({ ...position }));
 
-  let realizedPnL = undefined;
-  let realizedPnLPercent = undefined;
+  // Find if an existing position with the SAME side exists
+  const existingPosition = nextPositions.find((p) => p.coinId === coinId && (p.side || 'buy') === side);
 
-  if (side === 'buy') {
-    const totalCost = quote + fee;
-    if (totalCost > cash) throw new Error('Not enough demo cash for this order, including the 0.1% fee.');
+  if (existingPosition) {
+    const prevAmount = Number(existingPosition.amount || 0);
+    const nextAmount = roundQuantity(prevAmount + amount);
+    const prevCost = prevAmount * Number(existingPosition.averagePrice || 0);
+    const averagePrice = (prevCost + quote) / nextAmount;
 
-    const existingPosition = nextPositions.find((position) => position.coinId === coinId);
-    const previousAmount = Number(existingPosition?.amount || 0);
-    const nextAmount = roundQuantity(previousAmount + amount);
-    const previousCost = previousAmount * Number(existingPosition?.averagePrice || 0);
-    const averagePrice = (previousCost + totalCost) / nextAmount;
-
-    if (existingPosition) {
-      nextPositions = nextPositions.map((position) => position.coinId === coinId
-        ? { ...position, amount: nextAmount, averagePrice }
-        : position);
-    } else {
-      nextPositions.push({ coinId, symbol, amount: nextAmount, averagePrice });
-    }
-    nextCash = roundCash(cash - totalCost);
+    nextPositions = nextPositions.map((p) => (p === existingPosition
+      ? { ...p, amount: nextAmount, averagePrice, margin: roundCash((p.margin || 0) + quote) }
+      : p));
   } else {
-    const existingPosition = nextPositions.find((position) => position.coinId === coinId);
-    const heldAmount = Number(existingPosition?.amount || 0);
-    if (!existingPosition || amount > heldAmount + 1e-8) {
-      throw new Error(`Not enough ${symbol} in demo holdings to sell.`);
-    }
-
-    const avgPrice = Number(existingPosition?.averagePrice || price);
-    const costBasis = roundCash(amount * avgPrice);
-    const netProceeds = quote - fee;
-    realizedPnL = roundCash(netProceeds - costBasis);
-    realizedPnLPercent = costBasis > 0 ? Number(((realizedPnL / costBasis) * 100).toFixed(2)) : 0;
-
-    const remainingAmount = roundQuantity(heldAmount - amount);
-    nextPositions = remainingAmount <= 1e-8
-      ? nextPositions.filter((position) => position.coinId !== coinId)
-      : nextPositions.map((position) => position.coinId === coinId
-        ? { ...position, amount: remainingAmount }
-        : position);
-    nextCash = roundCash(cash + quote - fee);
+    nextPositions.push({
+      coinId,
+      symbol,
+      side, // 'buy' (Long) or 'sell' (Short)
+      amount: roundQuantity(amount),
+      averagePrice: price,
+      margin: quote,
+    });
   }
 
   const trade = {
@@ -85,7 +71,6 @@ export function executePaperTrade(wallet, order) {
     fee,
     status: 'filled',
     timestamp: new Date().toISOString(),
-    ...(realizedPnL !== undefined ? { pnl: realizedPnL, pnlPercent: realizedPnLPercent } : {}),
   };
 
   return {
@@ -98,21 +83,74 @@ export function executePaperTrade(wallet, order) {
   };
 }
 
-export function closePaperPosition(wallet, { coinId, price, percent = 100 }) {
+export function closePaperPosition(wallet, { coinId, price, percent = 100, side }) {
   const positions = Array.isArray(wallet?.positions) ? wallet.positions : [];
-  const existingPosition = positions.find((position) => position.coinId === coinId);
+  const existingPosition = positions.find((p) => p.coinId === coinId && (!side || (p.side || 'buy') === side));
   if (!existingPosition) {
     throw new Error('Position not found in demo portfolio.');
   }
 
+  const cash = Number(wallet?.cash || 0);
+  const trades = Array.isArray(wallet?.trades) ? wallet.trades : [];
+  const posSide = existingPosition.side || 'buy';
+  const posAmount = Number(existingPosition.amount || 0);
   const fraction = Math.max(0.01, Math.min(100, Number(percent) || 100)) / 100;
-  const closeAmount = roundQuantity(Number(existingPosition.amount) * fraction);
+  const closeAmount = roundQuantity(posAmount * fraction);
+  const entryPrice = Number(existingPosition.averagePrice || price);
+  const closeQuote = roundCash(closeAmount * price);
+  const closeFee = roundCash(closeQuote * 0.001);
 
-  return executePaperTrade(wallet, {
+  // PnL Calculation:
+  // Long (buy): Price rose -> profit: (price - entryPrice) * closeAmount
+  // Short (sell): Price dropped -> profit: (entryPrice - price) * closeAmount
+  let pnl = 0;
+  if (posSide === 'buy') {
+    pnl = roundCash(((price - entryPrice) * closeAmount) - closeFee);
+  } else {
+    pnl = roundCash(((entryPrice - price) * closeAmount) - closeFee);
+  }
+
+  const initialMarginForClosedShare = roundCash(closeAmount * entryPrice);
+  // Cash returned is the margin freed up + profit (or - loss)
+  const cashReturned = roundCash(Math.max(0, initialMarginForClosedShare + pnl));
+  const nextCash = roundCash(cash + cashReturned);
+
+  const remainingAmount = roundQuantity(posAmount - closeAmount);
+  let nextPositions = [];
+  if (remainingAmount <= 1e-8) {
+    nextPositions = positions.filter((p) => p !== existingPosition);
+  } else {
+    nextPositions = positions.map((p) => (p === existingPosition
+      ? { ...p, amount: remainingAmount, margin: roundCash(p.margin * (1 - fraction)) }
+      : p));
+  }
+
+  const costBasis = roundCash(closeAmount * entryPrice);
+  const pnlPercent = costBasis > 0 ? Number(((pnl / costBasis) * 100).toFixed(2)) : 0;
+
+  const closeTradeSide = posSide === 'buy' ? 'sell' : 'buy'; // closing a long is selling; closing a short is buying back
+  const trade = {
+    id: `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     coinId: existingPosition.coinId,
     symbol: existingPosition.symbol,
-    side: 'sell',
+    side: closeTradeSide,
+    orderType: `close-${posSide}`,
     amount: closeAmount,
     price,
-  });
-}
+    quote: closeQuote,
+    fee: closeFee,
+    pnl,
+    pnlPercent,
+    status: 'filled',
+    timestamp: new Date().toISOString(),
+  };
+
+  return {
+    trade,
+    wallet: {
+      cash: nextCash,
+      positions: nextPositions,
+      trades: [trade, ...trades].slice(0, 50),
+    },
+  };
+}

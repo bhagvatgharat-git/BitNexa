@@ -28,6 +28,12 @@ async function resolveApiBaseUrl() {
     }
   }
 
+  // If in production browser (not localhost), use relative path
+  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
+    cachedApiBaseUrl = '';
+    return cachedApiBaseUrl;
+  }
+
   cachedApiBaseUrl = 'http://localhost:5001';
   return cachedApiBaseUrl;
 }

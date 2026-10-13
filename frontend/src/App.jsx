@@ -146,6 +146,7 @@ function App() {
     return createDemoWallet();
   });
   const [theme, setTheme] = useState('dark');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [trending, setTrending] = useState([]);
   const [toasts, setToasts] = useState([
@@ -992,15 +993,23 @@ function App() {
   ], []);
 
   const orderTotal = tradeCoin ? (Number(amount) || 0) * tradeCoin.current_price : 0;
-  const selectedPaperPosition = paperWallet.positions.find((position) => position.coinId === tradeCoin?.id);
-  const paperOpenValue = paperWallet.positions.reduce((total, position) => {
-    const marketPrice = coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice;
-    return total + (Number(position.amount) || 0) * (Number(marketPrice) || 0);
+  const selectedPaperPosition = paperWallet.positions.find((position) => position.coinId === tradeCoin?.id && (position.side || 'buy') === orderSide);
+  
+  // Calculate total equity including long and short unrealized PnL
+  const paperOpenPnL = paperWallet.positions.reduce((total, position) => {
+    const marketPrice = Number(coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice || 0);
+    const entryPrice = Number(position.averagePrice || 0);
+    const qty = Number(position.amount || 0);
+    const isLong = (position.side || 'buy') === 'buy';
+    const posPnL = isLong ? (marketPrice - entryPrice) * qty : (entryPrice - marketPrice) * qty;
+    return total + posPnL;
   }, 0);
+
+  const paperMarginTotal = paperWallet.positions.reduce((sum, pos) => sum + (Number(pos.margin) || (Number(pos.amount) * Number(pos.averagePrice))), 0);
+  const paperOpenValue = paperMarginTotal + paperOpenPnL;
+
   const estimatedFee = Number((orderTotal * 0.001).toFixed(2));
-  const estimatedSettlement = tradeMode === 'demo'
-    ? orderSide === 'buy' ? orderTotal + estimatedFee : orderTotal - estimatedFee
-    : orderTotal;
+  const estimatedSettlement = orderTotal + estimatedFee;
 
   const effectivePortfolioSummary = useMemo(() => {
     if (portfolio.positions && portfolio.positions.length > 0) {
@@ -1011,24 +1020,28 @@ function App() {
       return sum + (Number(pos.amount || 0) * Number(pos.averagePrice || 0));
     }, 0);
 
-    const openPositionsValue = paperWallet.positions.reduce((sum, pos) => {
+    let totalUnrealizedPnl = 0;
+    paperWallet.positions.forEach((pos) => {
       const coin = coins.find((c) => c.id === pos.coinId);
       const currentPrice = Number(coin?.current_price || pos.averagePrice || 0);
-      return sum + (Number(pos.amount || 0) * currentPrice);
-    }, 0);
+      const entryPrice = Number(pos.averagePrice || 0);
+      const qty = Number(pos.amount || 0);
+      const isLong = (pos.side || 'buy') === 'buy';
+      totalUnrealizedPnl += isLong ? (currentPrice - entryPrice) * qty : (entryPrice - currentPrice) * qty;
+    });
 
-    const totalEquity = Number((Number(paperWallet.cash || 0) + openPositionsValue).toFixed(2));
+    const totalEquity = Number((Number(paperWallet.cash || 0) + totalInvested + totalUnrealizedPnl).toFixed(2));
     const startingCapital = STARTING_DEMO_CASH || 10000;
     const totalPnl = Number((totalEquity - startingCapital).toFixed(2));
     const totalPnlPercent = startingCapital > 0 ? Number(((totalPnl / startingCapital) * 100).toFixed(2)) : 0;
-    const unrealizedPnl = Number((openPositionsValue - totalInvested).toFixed(2));
+    const unrealizedPnl = Number(totalUnrealizedPnl.toFixed(2));
     const unrealizedPnlPercent = totalInvested > 0 ? Number(((unrealizedPnl / totalInvested) * 100).toFixed(2)) : 0;
 
     return {
       totalValue: totalEquity,
       totalInvested: Number(totalInvested.toFixed(2)),
       cash: Number(paperWallet.cash || 0),
-      openPositionsValue: Number(openPositionsValue.toFixed(2)),
+      openPositionsValue: Number((totalInvested + totalUnrealizedPnl).toFixed(2)),
       change: totalPnl,
       changePercent: totalPnlPercent,
       unrealizedPnl,
@@ -1205,18 +1218,28 @@ function App() {
         coinId: position.coinId,
         price: currentPrice,
         percent: closePercent,
+        side: position.side,
       });
 
       setPaperWallet(result.wallet);
 
-      const pnl = Number((((currentPrice - position.averagePrice) * result.trade.amount) - (result.trade.fee || 0)).toFixed(2));
-      const pnlPct = position.averagePrice > 0 ? Number((((currentPrice - position.averagePrice) / position.averagePrice) * 100).toFixed(2)) : 0;
+      const isLong = (position.side || 'buy') === 'buy';
+      const pnl = Number(result.trade.pnl !== undefined
+        ? result.trade.pnl
+        : isLong
+          ? (((currentPrice - position.averagePrice) * result.trade.amount) - (result.trade.fee || 0)).toFixed(2)
+          : (((position.averagePrice - currentPrice) * result.trade.amount) - (result.trade.fee || 0)).toFixed(2));
+      const pnlPct = result.trade.pnlPercent !== undefined
+        ? result.trade.pnlPercent
+        : position.averagePrice > 0
+          ? Number((((isLong ? currentPrice - position.averagePrice : position.averagePrice - currentPrice) / position.averagePrice) * 100).toFixed(2))
+          : 0;
       const pnlSign = pnl >= 0 ? '+' : '';
 
       setToast({
         id: Date.now(),
         type: pnl >= 0 ? 'success' : 'info',
-        text: `Position closed: Sold ${result.trade.amount} ${position.symbol.toUpperCase()} at ${formatCurrency(currentPrice)}. PnL: ${pnlSign}${formatCurrency(pnl)} (${pnlSign}${pnlPct}%)`,
+        text: `Closed ${isLong ? 'Long' : 'Short'} position: ${result.trade.amount} ${position.symbol.toUpperCase()} at ${formatCurrency(currentPrice)}. PnL: ${pnlSign}${formatCurrency(pnl)} (${pnlSign}${pnlPct}%)`,
       });
     } catch (error) {
       setToast({
@@ -1242,11 +1265,12 @@ function App() {
             coinId: position.coinId,
             price: currentPrice,
             percent: 100,
+            side: position.side,
           });
           currentWallet = result.wallet;
-          const pnl = (currentPrice - position.averagePrice) * Number(position.amount) - (result.trade.fee || 0);
+          const pnl = Number(result.trade.pnl || 0);
           totalClosedPnl += pnl;
-          closedSymbols.push(position.symbol.toUpperCase());
+          closedSymbols.push(`${(position.side || 'buy').toUpperCase()} ${position.symbol.toUpperCase()}`);
         }
       }
 
@@ -1255,7 +1279,7 @@ function App() {
       setToast({
         id: Date.now(),
         type: totalClosedPnl >= 0 ? 'success' : 'info',
-        text: `Closed ${closedSymbols.length} position(s) (${closedSymbols.join(', ')}). Realized PnL: ${pnlSign}${formatCurrency(totalClosedPnl)}`,
+        text: `Closed ${closedSymbols.length} position(s). Realized PnL: ${pnlSign}${formatCurrency(totalClosedPnl)}`,
       });
     } catch (error) {
       setToast({ id: Date.now(), type: 'error', text: error?.message || 'Failed to close all positions.' });
@@ -1503,14 +1527,13 @@ function App() {
     }
   };
 
-  const navItems = ['Dashboard', 'Markets', 'Watchlist', 'Portfolio', 'Trade History', 'Alerts'];
+  const navItems = ['Dashboard', 'Markets', 'Watchlist', 'Portfolio', 'Trade History'];
   const navTitles = {
     Dashboard: 'Market Overview',
     Markets: 'Live Markets',
     Watchlist: 'Watchlist',
     Portfolio: 'My Portfolio',
     'Trade History': 'Trade History & Fills',
-    Alerts: 'Signal Alerts',
   };
 
   const navIcons = {
@@ -1519,13 +1542,10 @@ function App() {
     Watchlist: '★',
     Portfolio: '▣',
     'Trade History': '⏱',
-    Alerts: '⚑',
   };
 
   const marketTabs = [
     { key: 'overview', label: 'Overview' },
-    { key: 'sectors', label: 'Sectors' },
-    { key: 'heatmap', label: 'Heatmap' },
     { key: 'portfolio', label: 'Your Mix' },
     { key: 'compare', label: 'Compare' },
   ];
@@ -1581,8 +1601,8 @@ function App() {
 
   return (
     <div className="app-shell">
-      <div className={`dashboard-shell ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'market-fullscreen-layout' : ''}`}>
-        <aside className={`sidebar ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'sidebar-hidden' : ''}`}>
+      <div className={`dashboard-shell ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'market-fullscreen-layout' : ''} ${sidebarCollapsed ? 'sidebar-is-collapsed' : ''}`}>
+        <aside className={`sidebar ${(coinWorkspaceFullscreen && selectedNav === 'Markets') || sidebarCollapsed ? 'sidebar-hidden' : ''}`}>
           <div className="brand-block" onClick={handleAdminBrandClick} title="BitNexa" style={{ cursor: 'pointer' }}>
             <span className="brand-mark">B</span>
             <div>
@@ -1649,7 +1669,15 @@ function App() {
         <main className={`content-area ${coinWorkspaceFullscreen && selectedNav === 'Markets' ? 'market-fullscreen-shell' : ''}`}>
           <header className="topbar">
             <div className="topbar-left">
-              <button type="button" className="icon-button" aria-label="Toggle menu">☰</button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Toggle sidebar menu"
+                title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                onClick={() => setSidebarCollapsed((current) => !current)}
+              >
+                ☰
+              </button>
               <div>
                 <p className="topbar-kicker">Welcome back</p>
                 <h2>{navTitles[selectedNav] || 'Market Overview'}</h2>
@@ -1802,20 +1830,46 @@ function App() {
               </div>
 
               <div className="hero-panel">
-                <div className="mini-stat">
+                <button
+                  type="button"
+                  className="mini-stat interactive-mini-stat"
+                  onClick={() => {
+                    setLastNonMarketNav('Portfolio');
+                    setSelectedNav('Portfolio');
+                  }}
+                  title="View Portfolio Breakdown & Demo Equity"
+                >
                   <span>Demo Equity</span>
                   <strong>{formatCurrency(effectivePortfolioSummary.totalValue)}</strong>
-                </div>
-                <div className="mini-stat accent">
+                </button>
+
+                <button
+                  type="button"
+                  className="mini-stat accent interactive-mini-stat"
+                  onClick={() => {
+                    setLastNonMarketNav('Trade History');
+                    setSelectedNav('Trade History');
+                  }}
+                  title="View Trade History & Realized P/L Audit"
+                >
                   <span>Total P/L</span>
                   <strong className={effectivePortfolioSummary.change >= 0 ? 'positive' : 'negative'}>
                     {effectivePortfolioSummary.change >= 0 ? '+' : ''}{formatCurrency(effectivePortfolioSummary.change)} ({effectivePortfolioSummary.changePercent >= 0 ? '+' : ''}{effectivePortfolioSummary.changePercent.toFixed(2)}%)
                   </strong>
-                </div>
-                <div className="mini-stat">
+                </button>
+
+                <button
+                  type="button"
+                  className="mini-stat interactive-mini-stat"
+                  onClick={() => {
+                    setLastNonMarketNav('Portfolio');
+                    setSelectedNav('Portfolio');
+                  }}
+                  title="View and Manage Open Positions in Portfolio"
+                >
                   <span>Open Positions</span>
-                  <strong>{paperWallet.positions.length > 0 ? paperWallet.positions.length : '—'}</strong>
-                </div>
+                  <strong>{paperWallet.positions.length > 0 ? paperWallet.positions.length : '0'}</strong>
+                </button>
               </div>
             </section>
 
@@ -2622,217 +2676,217 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="segmented-control">
-                      <button type="button" className={orderSide === 'buy' ? 'active' : ''} onClick={() => setOrderSide('buy')}>
-                        Buy
-                      </button>
-                      <button type="button" className={orderSide === 'sell' ? 'active' : ''} onClick={() => setOrderSide('sell')}>
-                        Sell
-                      </button>
-                    </div>
-
-                    <div className="demo-wallet-summary">
-                      <div>
-                        <span>Available demo cash</span>
-                        <strong>{formatCurrency(paperWallet.cash)}</strong>
-                      </div>
-                      <div>
-                        <span>Account equity</span>
-                        <strong>{formatCurrency(paperWallet.cash + paperOpenValue)}</strong>
-                      </div>
-                    </div>
-
-                    <div className="ticket-form">
-                      <label>
-                        Order type
-                        <span className="market-order-label">Market fill at live quote</span>
-                      </label>
-
-                      <label>
-                        Quantity (lot)
-                        <div className="amount-row">
-                          <input type="number" min="0.000001" step="0.000001" value={amount} onChange={(event) => setAmount(event.target.value)} />
-                          <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
-                        </div>
-                        <small>Fractional quantities supported. Demo holding: {Number(selectedPaperPosition?.amount || 0).toFixed(6)}</small>
-                      </label>
-                    </div>
-
-                    <div className="order-summary">
-                      <div>
-                        <span>Market price</span>
-                        <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
-                      </div>
-                      <div>
-                        <span>Est. {orderSide === 'buy' ? 'cost' : 'proceeds'} incl. 0.1% fee</span>
-                        <strong>{selectedCoin ? formatCurrency(estimatedSettlement) : '--'}</strong>
-                      </div>
-                    </div>
-
-                    {/* ── Live Open Positions Panel ── */}
-                    <div className="demo-position-section">
-                      <div className="demo-section-heading">
-                        <div className="demo-pos-heading-left">
-                          <span className="live-pos-dot" />
-                          <strong>Open Positions</strong>
-                          <span className="pos-count-badge">{paperWallet.positions.length}</span>
-                        </div>
-                        {paperWallet.positions.length > 0 && (
+                    <div className="demo-trading-landscape-grid">
+                      {/* Left Column: Order Ticket */}
+                      <div className="demo-trading-col-ticket">
+                        <div className="segmented-control trade-direction-control">
                           <button
                             type="button"
-                            className="close-all-btn"
-                            onClick={handleCloseAllPositions}
-                            title="Close all demo positions at market price"
+                            className={`trade-btn-long ${orderSide === 'buy' ? 'active' : ''}`}
+                            onClick={() => setOrderSide('buy')}
                           >
-                            Close All
+                            <span>↗ Buy / Long</span>
+                            <small>Uptrend</small>
                           </button>
-                        )}
+                          <button
+                            type="button"
+                            className={`trade-btn-short ${orderSide === 'sell' ? 'active' : ''}`}
+                            onClick={() => setOrderSide('sell')}
+                          >
+                            <span>↘ Sell / Short</span>
+                            <small>Downtrend</small>
+                          </button>
+                        </div>
+
+                        <div className="demo-wallet-summary">
+                          <div>
+                            <span>Available demo cash</span>
+                            <strong>{formatCurrency(paperWallet.cash)}</strong>
+                          </div>
+                          <div>
+                            <span>Account equity</span>
+                            <strong>{formatCurrency(paperWallet.cash + paperOpenValue)}</strong>
+                          </div>
+                        </div>
+
+                        <div className="ticket-form">
+                          <label>
+                            Order direction &amp; type
+                            <span className="market-order-label">
+                              {orderSide === 'buy' ? '🟢 Long (Profits when market rises)' : '🔴 Short (Profits when market falls)'}
+                            </span>
+                          </label>
+
+                          <label>
+                            Quantity (lot)
+                            <div className="amount-row">
+                              <input type="number" min="0.000001" step="0.000001" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                              <span>{selectedCoin?.symbol?.toUpperCase() || 'BTC'}</span>
+                            </div>
+                            <small>
+                              {orderSide === 'buy' ? 'Open Long position' : 'Open Short position'} · Demo size: {Number(selectedPaperPosition?.amount || 0).toFixed(6)}
+                            </small>
+                          </label>
+                        </div>
+
+                        <div className="order-summary">
+                          <div>
+                            <span>Market price</span>
+                            <strong>{selectedCoin ? formatCurrency(selectedCoin.current_price) : '--'}</strong>
+                          </div>
+                          <div>
+                            <span>Required Margin incl. 0.1% fee</span>
+                            <strong>{selectedCoin ? formatCurrency(estimatedSettlement) : '--'}</strong>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className={`place-order ${orderSide}`}
+                          onClick={handlePlaceOrder}
+                          style={{ marginTop: '1rem' }}
+                        >
+                          {orderSide === 'buy' ? '↗ Open Long (Buy)' : '↘ Open Short (Sell)'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
+                        </button>
                       </div>
 
-                      {paperWallet.positions.length ? (
-                        <div className="demo-position-list">
-                          {paperWallet.positions.map((position) => {
-                            const positionCoin = coins.find((coin) => coin.id === position.coinId);
-                            const currentPrice = Number(positionCoin?.current_price || position.averagePrice || 0);
-                            const currentValue = Number(position.amount) * currentPrice;
-                            const costBasis = Number(position.amount) * Number(position.averagePrice || 0);
-                            const unrealizedPnl = currentValue - costBasis;
-                            const unrealizedPnlPct = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
-                            const isProfit = unrealizedPnl >= 0;
+                      {/* Right Column: Positions & Recent Fills */}
+                      <div className="demo-trading-col-activity">
+                        {/* ── Live Open Positions Panel ── */}
+                        <div className="demo-position-section" style={{ marginTop: 0 }}>
+                          <div className="demo-section-heading">
+                            <div className="demo-pos-heading-left">
+                              <span className="live-pos-dot" />
+                              <strong>Open Positions</strong>
+                              <span className="pos-count-badge">{paperWallet.positions.length}</span>
+                            </div>
+                            {paperWallet.positions.length > 0 && (
+                              <button
+                                type="button"
+                                className="close-all-btn"
+                                onClick={handleCloseAllPositions}
+                                title="Close all demo positions at market price"
+                              >
+                                Close All
+                              </button>
+                            )}
+                          </div>
 
+                          {paperWallet.positions.length ? (
+                            <div className="demo-position-list">
+                              {paperWallet.positions.map((position) => {
+                                const positionCoin = coins.find((coin) => coin.id === position.coinId);
+                                const currentPrice = Number(positionCoin?.current_price || position.averagePrice || 0);
+                                const entryPrice = Number(position.averagePrice || 0);
+                                const isLong = (position.side || 'buy') === 'buy';
+                                const currentValue = Number(position.amount) * currentPrice;
+                                const costBasis = Number(position.amount) * entryPrice;
+                                
+                                // Proper PnL: Long gains if price rises, Short gains if price drops
+                                const unrealizedPnl = isLong
+                                  ? (currentPrice - entryPrice) * Number(position.amount)
+                                  : (entryPrice - currentPrice) * Number(position.amount);
+                                const unrealizedPnlPct = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
+                                const isProfit = unrealizedPnl >= 0;
+
+                                return (
+                                  <div key={`${position.coinId}-${position.side || 'buy'}`} className={`live-position-card ${isProfit ? 'profit' : 'loss'}`}>
+                                    <div className="live-pos-header">
+                                      <div className="live-pos-meta">
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <span className={`pos-direction-chip ${isLong ? 'long' : 'short'}`}>
+                                            {isLong ? 'LONG ↗' : 'SHORT ↘'}
+                                          </span>
+                                          <span className="live-pos-symbol">{position.symbol.toUpperCase()}</span>
+                                        </div>
+                                        <span className="live-pos-amount">{Number(position.amount).toFixed(6)} @ {formatCurrency(position.averagePrice)}</span>
+                                      </div>
+                                      <div className="live-pos-pnl-badge">
+                                        <span className={`pnl-pill ${isProfit ? 'positive' : 'negative'}`}>
+                                          {isProfit ? '▲' : '▼'} {isProfit ? '+' : ''}{formatCurrency(unrealizedPnl)} ({isProfit ? '+' : ''}{unrealizedPnlPct.toFixed(2)}%)
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="live-pos-stats-row">
+                                      <div className="live-pos-stat">
+                                        <span>Entry</span>
+                                        <strong>{formatCurrency(position.averagePrice)}</strong>
+                                      </div>
+                                      <div className="live-pos-stat">
+                                        <span>Current</span>
+                                        <strong className={isProfit ? 'positive' : 'negative'}>{formatCurrency(currentPrice)}</strong>
+                                      </div>
+                                      <div className="live-pos-stat">
+                                        <span>Margin</span>
+                                        <strong>{formatCurrency(costBasis)}</strong>
+                                      </div>
+                                    </div>
+
+                                    <div className="live-pos-actions">
+                                      <button
+                                        type="button"
+                                        className="pos-action-btn view-btn"
+                                        onClick={() => openCoinWorkspace(position.coinId)}
+                                      >
+                                        📈 Chart
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="pos-action-btn half-close-btn"
+                                        onClick={() => handleClosePosition(position.coinId, 50)}
+                                        title="Close 50% of position"
+                                      >
+                                        ½ Close
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="pos-action-btn close-pos-btn"
+                                        onClick={() => handleClosePosition(position.coinId, 100)}
+                                        title="Close entire position at market price"
+                                      >
+                                        ✕ Close
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="demo-empty-state">No open positions. Use Buy / Long or Sell / Short to trade.</p>
+                          )}
+                        </div>
+
+                        {/* ── Recent Trade History ── */}
+                        <div className="demo-trade-history" style={{ marginTop: '16px' }}>
+                          <div className="demo-section-heading" style={{ marginBottom: '8px' }}>
+                            <strong>Recent Fills</strong>
+                            <span>{Math.min(paperWallet.trades.length, 5)} of {paperWallet.trades.length}</span>
+                          </div>
+                          {paperWallet.trades.length ? paperWallet.trades.slice(0, 5).map((trade) => {
+                            const isPnlTrade = trade.pnl !== undefined;
+                            const isBuy = trade.side === 'buy';
                             return (
-                              <div key={position.coinId} className={`live-position-card ${isProfit ? 'profit' : 'loss'}`}>
-                                <div className="live-pos-header">
-                                  <div className="live-pos-meta">
-                                    <span className="live-pos-symbol">{position.symbol.toUpperCase()}</span>
-                                    <span className="live-pos-amount">{Number(position.amount).toFixed(6)} @ {formatCurrency(position.averagePrice)}</span>
-                                  </div>
-                                  <div className="live-pos-pnl-badge">
-                                    <span className={`pnl-pill ${isProfit ? 'positive' : 'negative'}`}>
-                                      {isProfit ? '▲' : '▼'} {isProfit ? '+' : ''}{formatCurrency(unrealizedPnl)} ({isProfit ? '+' : ''}{unrealizedPnlPct.toFixed(2)}%)
+                              <div key={trade.id} className={`trade-history-row ${isBuy ? 'buy' : 'sell'}`}>
+                                <div className="trade-hist-icon">{isBuy ? '↑' : '↓'}</div>
+                                <div className="trade-hist-info">
+                                  <span className="trade-hist-label">{isBuy ? 'BUY' : 'SELL'} {trade.symbol}</span>
+                                  <small className="trade-hist-detail">
+                                    {trade.amount} {trade.symbol} @ {formatCurrency(trade.price)} · {formatCurrency(trade.quote)}
+                                  </small>
+                                </div>
+                                <div className="trade-hist-right">
+                                  {isPnlTrade ? (
+                                    <span className={`trade-pnl-chip ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
+                                      {trade.pnl >= 0 ? '+' : ''}{formatCurrency(trade.pnl)}
                                     </span>
-                                  </div>
-                                </div>
-
-                                <div className="live-pos-stats-row">
-                                  <div className="live-pos-stat">
-                                    <span>Entry</span>
-                                    <strong>{formatCurrency(position.averagePrice)}</strong>
-                                  </div>
-                                  <div className="live-pos-stat">
-                                    <span>Current</span>
-                                    <strong className={isProfit ? 'positive' : 'negative'}>{formatCurrency(currentPrice)}</strong>
-                                  </div>
-                                  <div className="live-pos-stat">
-                                    <span>Value</span>
-                                    <strong>{formatCurrency(currentValue)}</strong>
-                                  </div>
-                                </div>
-
-                                <div className="live-pos-actions">
-                                  <button
-                                    type="button"
-                                    className="pos-action-btn view-btn"
-                                    onClick={() => openCoinWorkspace(position.coinId)}
-                                  >
-                                    📈 Chart
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="pos-action-btn half-close-btn"
-                                    onClick={() => handleClosePosition(position.coinId, 50)}
-                                    title="Close 50% of position"
-                                  >
-                                    ½ Close
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="pos-action-btn close-pos-btn"
-                                    onClick={() => handleClosePosition(position.coinId, 100)}
-                                    title="Close entire position at market price"
-                                  >
-                                    ✕ Close
-                                  </button>
+                                  ) : null}
+                                  <small className="trade-hist-time">{new Date(trade.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
                                 </div>
                               </div>
                             );
-                          })}
+                          }) : <p className="demo-empty-state">No fills yet.</p>}
                         </div>
-                      ) : (
-                        <p className="demo-empty-state">No open positions. Use Buy to open your first demo trade.</p>
-                      )}
-                    </div>
-
-                    {/* ── Recent Trade History ── */}
-                    <div className="demo-trade-history">
-                      <div className="demo-section-heading" style={{ marginBottom: '8px' }}>
-                        <strong>Recent Fills</strong>
-                        <span>{Math.min(paperWallet.trades.length, 5)} of {paperWallet.trades.length}</span>
-                      </div>
-                      {paperWallet.trades.length ? paperWallet.trades.slice(0, 5).map((trade) => {
-                        const isPnlTrade = trade.pnl !== undefined;
-                        const isBuy = trade.side === 'buy';
-                        return (
-                          <div key={trade.id} className={`trade-history-row ${isBuy ? 'buy' : 'sell'}`}>
-                            <div className="trade-hist-icon">{isBuy ? '↑' : '↓'}</div>
-                            <div className="trade-hist-info">
-                              <span className="trade-hist-label">{isBuy ? 'BUY' : 'SELL'} {trade.symbol}</span>
-                              <small className="trade-hist-detail">
-                                {trade.amount} {trade.symbol} @ {formatCurrency(trade.price)} · {formatCurrency(trade.quote)}
-                              </small>
-                            </div>
-                            <div className="trade-hist-right">
-                              {isPnlTrade ? (
-                                <span className={`trade-pnl-chip ${trade.pnl >= 0 ? 'positive' : 'negative'}`}>
-                                  {trade.pnl >= 0 ? '+' : ''}{formatCurrency(trade.pnl)}
-                                </span>
-                              ) : null}
-                              <small className="trade-hist-time">{new Date(trade.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
-                            </div>
-                          </div>
-                        );
-                      }) : <p className="demo-empty-state">No fills yet.</p>}
-                    </div>
-
-                    <button
-                      type="button"
-                      className={`place-order ${orderSide}`}
-                      onClick={handlePlaceOrder}
-                    >
-                      {orderSide === 'buy' ? 'Buy' : 'Sell'} {selectedCoin?.symbol?.toUpperCase() || 'BTC'}
-                    </button>
-                  </div>
-
-                  <div className="panel-card candle-panel">
-                    <div className="panel-header">
-                      <h3>Candlestick Pattern</h3>
-                      <span>{rangeOptions.find((option) => option.value === range)?.label || '7D'}</span>
-                    </div>
-
-                    <div className="candle-chart-wrap">
-                      <PriceChart
-                        prices={chartData}
-                        candles={candleChartData.candles || []}
-                        style="candlestick"
-                        currency={currency}
-                        currencyRate={currencyRates[currency] || 1}
-                        resetKey={`${selectedId}:${range}:pattern`}
-                        showSeconds={INTRADAY_INTERVALS.includes(range)}
-                      />
-                    </div>
-
-                    <div className="pattern-list">
-                      <div className="pattern-item positive">
-                        <span>Trend</span>
-                        <strong>{selectedCoin && selectedCoin.price_change_percentage_24h >= 0 ? 'Bullish' : 'Cooling'}</strong>
-                      </div>
-                      <div className="pattern-item neutral">
-                        <span>Setup</span>
-                        <strong>{selectedCoin ? (selectedCoin.price_change_percentage_24h >= 0 ? 'Breakout retest' : 'Support test') : 'Watching'}</strong>
-                      </div>
-                      <div className="pattern-item neutral">
-                        <span>Volume</span>
-                        <strong>{selectedCoin ? formatCompact(selectedCoin.total_volume) : '--'}</strong>
                       </div>
                     </div>
                   </div>
