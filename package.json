@@ -6,7 +6,7 @@
     "dev": "cross-env PORT=5001 VITE_API_URL=http://localhost:5001 concurrently \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
     "dev:backend": "cross-env PORT=5001 npm --prefix backend run dev",
     "dev:frontend": "cross-env VITE_API_URL=http://localhost:5001 npm --prefix frontend run dev",
-    "build": "npm --prefix frontend run build",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
     "start:backend": "cross-env PORT=5001 npm --prefix backend run start",
     "test": "npm --prefix backend run test"
   },
