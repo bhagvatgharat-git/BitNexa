@@ -15,6 +15,14 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import { Line, Doughnut } from 'react-chartjs-2';
 import marketApi from './services/marketApi';
 import PriceChart from './components/PriceChart';
+import AllocationPanel from './components/AllocationPanel';
+import PerformanceRiskGrid from './components/PerformanceRiskGrid';
+import StrategyGrid from './components/StrategyGrid';
+import AuthModal from './components/AuthModal';
+import AdminModal from './components/AdminModal';
+import AdminPanel from './components/AdminPanel';
+import WatchlistSection from './components/WatchlistSection';
+import TradeHistorySection from './components/TradeHistorySection';
 import { closePaperPosition, createDemoWallet, DEMO_WALLET_STORAGE_KEY, executePaperTrade, STARTING_DEMO_CASH } from './services/paperTrading';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler, ArcElement, zoomPlugin);
@@ -41,47 +49,16 @@ const TRADING_VIEW_TOP_COINS = normalizeCoinIds([
 const TOP_50_IDS = TRADING_VIEW_TOP_COINS;
 
 const getSafeCoinImage = (coin) => {
-  const candidates = [
-    coin?.image,
-    coin?.large,
-    coin?.thumb,
-    coin?.small,
-    coin?.logo,
-    coin?.icon,
-  ];
-
-  for (const raw of candidates) {
-    if (typeof raw === 'string' && /^https?:\/\//i.test(raw.trim())) {
-      return raw.trim();
-    }
-  }
-
+  const img = [coin?.image, coin?.large, coin?.thumb, coin?.small, coin?.logo, coin?.icon].find((s) => typeof s === 'string' && /^https?:\/\//i.test(s.trim()));
+  if (img) return img.trim();
   const symbol = (coin?.symbol || coin?.name || 'C').toString().trim().slice(0, 3).toUpperCase() || 'C';
-  const initial = symbol.charAt(0) || 'C';
   const bg = Number(coin?.price_change_percentage_24h || 0) >= 0 ? '#1dbf73' : '#ff6b6b';
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-      <defs>
-        <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stop-color="${bg}"/>
-          <stop offset="100%" stop-color="#0f172a"/>
-        </linearGradient>
-      </defs>
-      <rect width="100" height="100" rx="20" fill="url(#g)"/>
-      <text x="50" y="58" text-anchor="middle" font-size="42" fill="#ffffff" font-family="Arial, sans-serif" font-weight="700">${initial}</text>
-    </svg>
-  `;
-
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="${bg}"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="100" height="100" rx="20" fill="url(#g)"/><text x="50" y="58" text-anchor="middle" font-size="42" fill="#ffffff" font-family="Arial,sans-serif" font-weight="700">${symbol.charAt(0) || 'C'}</text></svg>`)}`;
 };
 
-const formatCompact = (value) =>
-  new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 2,
-  }).format(value ?? 0);
+const formatCompact = (val) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(val ?? 0);
+const formatPercent = (val) => `${Number(val || 0).toFixed(2)}%`;
 
-const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 const DISPLAY_CURRENCIES = [
   { code: 'usd', label: 'USD' },
   { code: 'eur', label: 'EUR' },
@@ -987,7 +964,7 @@ function App() {
 
   const orderTotal = tradeCoin ? (Number(amount) || 0) * tradeCoin.current_price : 0;
   const selectedPaperPosition = paperWallet.positions.find((position) => position.coinId === tradeCoin?.id && (position.side || 'buy') === orderSide);
-  
+
   // Calculate total equity including long and short unrealized PnL
   const paperOpenPnL = paperWallet.positions.reduce((total, position) => {
     const marketPrice = Number(coins.find((coin) => coin.id === position.coinId)?.current_price || position.averagePrice || 0);
@@ -2022,115 +1999,17 @@ function App() {
               </div>
             </section>
 
-            <section className="portfolio-grid">
-              <div className="panel-card">
-                <div className="panel-header">
-                  <h3>Portfolio Allocation</h3>
-                  <span>{portfolio.positions.length ? 'Live' : 'Demo'}</span>
-                </div>
+            <AllocationPanel
+              title="Portfolio Allocation"
+              badge={portfolio.positions.length ? 'Live' : 'Demo'}
+              portfolioBreakdown={portfolioBreakdown}
+              alertFeed={alertFeed}
+              alertsCount={alerts.length}
+            />
 
-                <div className="allocation-list">
-                  {portfolioBreakdown.map((item) => (
-                    <div key={item.label} className="allocation-row">
-                      <div className="allocation-header">
-                        <strong>{item.label}</strong>
-                        <span>{item.value}</span>
-                      </div>
-                      <div className="allocation-bar">
-                        <span style={{ width: `${item.weight}%`, background: item.color }} />
-                      </div>
-                      <small>{item.weight}% allocation</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
-              <div className="panel-card">
-                <div className="panel-header">
-                  <h3>Signal Alerts</h3>
-                  <span>{alerts.length ? `${alerts.length} saved` : '3 new'}</span>
-                </div>
-
-                <div className="alert-list">
-                  {alertFeed.map((alert) => (
-                    <div key={`${alert.title}-${alert.detail}`} className={`alert-item ${alert.tone}`}>
-                      <div className="alert-dot" />
-                      <div>
-                        <strong>{alert.title}</strong>
-                        <small>{alert.detail}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="terminal-grid">
-              <div className="panel-card performance-panel">
-                <div className="panel-header">
-                  <h3>Portfolio Performance</h3>
-                  <span>YTD</span>
-                </div>
-
-                <div className="mini-chart">
-                  <Line
-                    data={portfolioPerformance}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: { legend: { display: false }, tooltip: { enabled: true } },
-                      scales: {
-                        x: { display: false },
-                        y: { display: false },
-                      },
-                      interaction: { mode: 'nearest', axis: 'x', intersect: false },
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="panel-card risk-panel">
-                <div className="panel-header">
-                  <h3>Risk Meter</h3>
-                  <span>Balanced</span>
-                </div>
-
-                <div className="risk-layout">
-                  <div className="risk-ring">
-                    <span>62%</span>
-                  </div>
-
-                  <div className="risk-breakdown">
-                    <div>
-                      <span>Volatility</span>
-                      <strong>Moderate</strong>
-                    </div>
-                    <div>
-                      <span>Drawdown</span>
-                      <strong>8.4%</strong>
-                    </div>
-                    <div>
-                      <span>Sharpe</span>
-                      <strong>1.72</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="strategy-grid">
-              {strategyCards.map((card) => (
-                <div key={card.title} className={`panel-card strategy-card ${card.tone}`}>
-                  <span className="eyebrow strategy-tag">{card.tag}</span>
-                  <h3>{card.title}</h3>
-                  <p>{card.description}</p>
-                  <div className="strategy-footer">
-                    <span>{card.signal}</span>
-                    <button type="button" className="tiny-btn">Apply</button>
-                  </div>
-                </div>
-              ))}
-            </section>
+            <PerformanceRiskGrid portfolioPerformance={portfolioPerformance} />
+            <StrategyGrid strategyCards={strategyCards} />
 
             <section className="news-panel panel-card">
               <div className="panel-header">
@@ -2517,10 +2396,10 @@ function App() {
                                   key={option.label}
                                   type="button"
                                   className={range === option.value ? 'active' : ''}
-                                    onClick={() => {
-                                      setRange(option.value);
-                                      if (INTRADAY_INTERVALS.includes(option.value)) setChartStyle('candlestick');
-                                    }}
+                                  onClick={() => {
+                                    setRange(option.value);
+                                    if (INTRADAY_INTERVALS.includes(option.value)) setChartStyle('candlestick');
+                                  }}
                                 >
                                   {option.label}
                                 </button>
@@ -2581,11 +2460,13 @@ function App() {
                                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
                                   },
                                   y: {
-                                    ticks: { color: '#9db5d1', callback: (value) => {
-                                      const label = Number(value);
-                                      if (chartMode === 'performance') return `${label.toFixed(2)}%`;
-                                      return formatCurrency(label);
-                                    } },
+                                    ticks: {
+                                      color: '#9db5d1', callback: (value) => {
+                                        const label = Number(value);
+                                        if (chartMode === 'performance') return `${label.toFixed(2)}%`;
+                                        return formatCurrency(label);
+                                      }
+                                    },
                                     grid: { color: 'rgba(255, 255, 255, 0.05)' },
                                   },
                                 },
@@ -2743,7 +2624,7 @@ function App() {
                                 const isLong = (position.side || 'buy') === 'buy';
                                 const currentValue = Number(position.amount) * currentPrice;
                                 const costBasis = Number(position.amount) * entryPrice;
-                                
+
                                 // Proper PnL: Long gains if price rises, Short gains if price drops
                                 const unrealizedPnl = isLong
                                   ? (currentPrice - entryPrice) * Number(position.amount)
@@ -3124,56 +3005,16 @@ function App() {
             )}
           </section>
 
-          <section className={`watchlist-section ${selectedNav === 'Watchlist' ? 'section-active' : 'section-hidden'}`}>
-            <section className="watchlist-panel">
-              <div className="panel-header">
-                <h3>My Watchlist</h3>
-                <div className="watchlist-actions">
-                  <span>{watchlistCoins.length} saved</span>
-                  {watchlistCoins.length > 0 && (
-                    <button type="button" className="clear-btn" onClick={() => setWatchlist([])}>
-                      Clear all
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {!user && !watchlistCoins.length ? (
-                <div className="empty-state">
-                  <div className="empty-icon">★</div>
-                  <h4>Sign in to save your watchlist</h4>
-                  <p>Login and sync your favorite coins across devices.</p>
-                  <button type="button" className="primary-btn" onClick={() => setAuthOpen(true)}>Login now</button>
-                </div>
-              ) : watchlistCoins.length ? (
-                <div className="watchlist-list">
-                  {watchlistCoins.map((coin) => (
-                    <div key={coin.id} className="watchlist-item">
-                      <div className="coin-meta">
-                        <img src={getSafeCoinImage(coin)} alt={coin.name} />
-                        <div>
-                          <strong>{coin.name}</strong>
-                          <span>{coin.symbol.toUpperCase()}</span>
-                        </div>
-                      </div>
-                      <div className="watch-price-group">
-                        <strong>{formatCurrency(coin.current_price)}</strong>
-                        <span className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                          {formatPercent(coin.price_change_percentage_24h)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">☆</div>
-                  <h4>Your watchlist is empty</h4>
-                  <p>Add your favorite coins to track them here.</p>
-                </div>
-              )}
-            </section>
-          </section>
+          <WatchlistSection
+            selectedNav={selectedNav}
+            watchlistCoins={watchlistCoins}
+            setWatchlist={setWatchlist}
+            user={user}
+            setAuthOpen={setAuthOpen}
+            getSafeCoinImage={getSafeCoinImage}
+            formatCurrency={formatCurrency}
+            formatPercent={formatPercent}
+          />
 
           <section className={`portfolio-section ${selectedNav === 'Portfolio' ? 'section-active' : 'section-hidden'}`}>
             {/* ── Demo Portfolio Summary Banner ── */}
@@ -3276,48 +3117,15 @@ function App() {
               </div>
             </section>
 
-            <section className="portfolio-grid" style={{ marginTop: '1.5rem' }}>
-              <div className="panel-card">
-                <div className="panel-header">
-                  <h3>Asset Mix</h3>
-                  <span>{paperWallet.positions.length > 0 ? `${paperWallet.positions.length} assets` : 'All Cash'}</span>
-                </div>
+            <AllocationPanel
+              title="Asset Mix"
+              badge={paperWallet.positions.length > 0 ? `${paperWallet.positions.length} assets` : 'All Cash'}
+              portfolioBreakdown={portfolioBreakdown}
+              alertFeed={alertFeed}
+              alertsCount={alerts.length}
+              style={{ marginTop: '1.5rem' }}
+            />
 
-                <div className="allocation-list">
-                  {portfolioBreakdown.map((item) => (
-                    <div key={item.label} className="allocation-row">
-                      <div className="allocation-header">
-                        <strong>{item.label}</strong>
-                        <span>{item.value}</span>
-                      </div>
-                      <div className="allocation-bar">
-                        <span style={{ width: `${item.weight}%`, background: item.color }} />
-                      </div>
-                      <small>{item.weight}% allocation</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="panel-card">
-                <div className="panel-header">
-                  <h3>Your Alerts</h3>
-                  <span>{alerts.length ? `${alerts.length} saved` : '3 new'}</span>
-                </div>
-
-                <div className="alert-list">
-                  {alertFeed.map((alert) => (
-                    <div key={`${alert.title}-${alert.detail}`} className={`alert-item ${alert.tone}`}>
-                      <div className="alert-dot" />
-                      <div>
-                        <strong>{alert.title}</strong>
-                        <small>{alert.detail}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
 
             <section className="panel-card" style={{ marginTop: '1.5rem' }}>
               <div className="panel-header">
@@ -3380,537 +3188,61 @@ function App() {
               </form>
             </section>
 
-            <section className="terminal-grid">
-              <div className="panel-card performance-panel">
-                <div className="panel-header">
-                  <h3>Portfolio Performance</h3>
-                  <span>YTD</span>
-                </div>
-
-                <div className="mini-chart">
-                  <Line
-                    data={portfolioPerformance}
-                    options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: { legend: { display: false }, tooltip: { enabled: true } },
-                      scales: {
-                        x: { display: false },
-                        y: { display: false },
-                      },
-                      interaction: { mode: 'nearest', axis: 'x', intersect: false },
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="panel-card risk-panel">
-                <div className="panel-header">
-                  <h3>Risk Meter</h3>
-                  <span>Balanced</span>
-                </div>
-
-                <div className="risk-layout">
-                  <div className="risk-ring">
-                    <span>62%</span>
-                  </div>
-
-                  <div className="risk-breakdown">
-                    <div>
-                      <span>Volatility</span>
-                      <strong>Moderate</strong>
-                    </div>
-                    <div>
-                      <span>Drawdown</span>
-                      <strong>8.4%</strong>
-                    </div>
-                    <div>
-                      <span>Sharpe</span>
-                      <strong>1.72</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="strategy-grid">
-              {strategyCards.map((card) => (
-                <div key={card.title} className={`panel-card strategy-card ${card.tone}`}>
-                  <span className="eyebrow strategy-tag">{card.tag}</span>
-                  <h3>{card.title}</h3>
-                  <p>{card.description}</p>
-                  <div className="strategy-footer">
-                    <span>{card.signal}</span>
-                    <button type="button" className="tiny-btn">Apply</button>
-                  </div>
-                </div>
-              ))}
-            </section>
+            <PerformanceRiskGrid portfolioPerformance={portfolioPerformance} />
+            <StrategyGrid strategyCards={strategyCards} />
           </section>
 
           {/* ── Trade History Section ── */}
-          <section className={`trade-history-section ${selectedNav === 'Trade History' ? 'section-active' : 'section-hidden'}`}>
-            {(() => {
-              const allTrades = [
-                ...(Array.isArray(transactions) ? transactions : []),
-                ...(Array.isArray(paperWallet?.trades) ? paperWallet.trades : []),
-              ];
-
-              // Deduplicate if needed
-              const seen = new Set();
-              const uniqueTrades = allTrades.filter((t) => {
-                const key = t.id || `${t.timestamp}-${t.symbol}-${t.amount}`;
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-              });
-
-              const filteredTrades = uniqueTrades.filter((t) => {
-                if (tradeHistoryFilter === 'buy') return t.side === 'buy';
-                if (tradeHistoryFilter === 'sell') return t.side === 'sell';
-                return true;
-              });
-
-              const totalTradesCount = uniqueTrades.length;
-              const buyCount = uniqueTrades.filter((t) => t.side === 'buy').length;
-              const sellCount = uniqueTrades.filter((t) => t.side === 'sell').length;
-              const totalRealizedPnl = uniqueTrades.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
-              const totalVolumeTraded = uniqueTrades.reduce((acc, t) => acc + (Number(t.quote) || (Number(t.amount) * Number(t.price)) || 0), 0);
-
-              return (
-                <div className="trade-history-container">
-                  {/* Stats Overview */}
-                  <div className="trade-history-stats-grid">
-                    <div className="panel-card th-stat-card">
-                      <span className="th-stat-label">Total Trades</span>
-                      <strong className="th-stat-val">{totalTradesCount}</strong>
-                      <span className="th-stat-sub">{buyCount} Buys · {sellCount} Sells</span>
-                    </div>
-
-                    <div className="panel-card th-stat-card">
-                      <span className="th-stat-label">Total Volume Traded</span>
-                      <strong className="th-stat-val">{formatCurrency(totalVolumeTraded)}</strong>
-                      <span className="th-stat-sub">Cumulative order flow</span>
-                    </div>
-
-                    <div className="panel-card th-stat-card">
-                      <span className="th-stat-label">Realized P&amp;L</span>
-                      <strong className={`th-stat-val ${totalRealizedPnl >= 0 ? 'positive' : 'negative'}`}>
-                        {totalRealizedPnl >= 0 ? '+' : ''}{formatCurrency(totalRealizedPnl)}
-                      </strong>
-                      <span className="th-stat-sub">From closed positions</span>
-                    </div>
-
-                    <div className="panel-card th-stat-card">
-                      <span className="th-stat-label">Execution Mode</span>
-                      <strong className="th-stat-val" style={{ color: '#38bdf8' }}>
-                        {user ? 'Account Synced' : 'Demo Trading'}
-                      </strong>
-                      <span className="th-stat-sub">Instant fills</span>
-                    </div>
-                  </div>
-
-                  {/* Main Trade History Table Panel */}
-                  <div className="panel-card th-table-panel" style={{ marginTop: '1.25rem' }}>
-                    <div className="th-panel-header">
-                      <div>
-                        <h3>Executed Fills &amp; Orders</h3>
-                        <p className="th-panel-sub">Complete audit log of all your buy and sell executions</p>
-                      </div>
-
-                      <div className="th-filters-row">
-                        <div className="th-pill-group">
-                          <button
-                            type="button"
-                            className={`th-pill-btn ${tradeHistoryFilter === 'all' ? 'active' : ''}`}
-                            onClick={() => setTradeHistoryFilter('all')}
-                          >
-                            All ({totalTradesCount})
-                          </button>
-                          <button
-                            type="button"
-                            className={`th-pill-btn ${tradeHistoryFilter === 'buy' ? 'active' : ''}`}
-                            onClick={() => setTradeHistoryFilter('buy')}
-                          >
-                            Buys ({buyCount})
-                          </button>
-                          <button
-                            type="button"
-                            className={`th-pill-btn ${tradeHistoryFilter === 'sell' ? 'active' : ''}`}
-                            onClick={() => setTradeHistoryFilter('sell')}
-                          >
-                            Sells ({sellCount})
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {filteredTrades.length === 0 ? (
-                      <div className="th-empty-state">
-                        <span className="th-empty-icon">📋</span>
-                        <h4>No trades recorded yet</h4>
-                        <p>Buy or sell any asset in the market view to start tracking your trade execution history here.</p>
-                        <button
-                          type="button"
-                          className="primary-btn"
-                          style={{ marginTop: '1rem' }}
-                          onClick={() => setSelectedNav('Markets')}
-                        >
-                          Explore Markets &amp; Trade
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="th-table-wrap">
-                        <table className="th-table">
-                          <thead>
-                            <tr>
-                              <th>Date &amp; Time</th>
-                              <th>Asset / Pair</th>
-                              <th>Side</th>
-                              <th>Execution Price</th>
-                              <th>Filled Quantity</th>
-                              <th>Total Value</th>
-                              <th>Realized P&amp;L</th>
-                              <th>Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredTrades.map((t, index) => {
-                              const isBuy = t.side === 'buy';
-                              const tradeSymbol = (t.symbol || 'BTC').toUpperCase();
-                              const tradePrice = Number(t.price || 0);
-                              const tradeAmount = Number(t.amount || 0);
-                              const tradeTotal = Number(t.quote) || (tradePrice * tradeAmount);
-                              const hasPnl = t.pnl !== undefined && t.pnl !== null;
-                              const pnlVal = Number(t.pnl || 0);
-                              const dateObj = t.timestamp ? new Date(t.timestamp) : new Date();
-
-                              return (
-                                <tr key={t.id || index}>
-                                  <td className="th-col-time">
-                                    <div className="th-time-val">{dateObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                                    <div className="th-time-sub">{dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
-                                  </td>
-                                  <td>
-                                    <div className="th-coin-cell">
-                                      <span className="th-coin-sym">{tradeSymbol}</span>
-                                      <span className="th-pair-sub">/ USDT</span>
-                                    </div>
-                                  </td>
-                                  <td>
-                                    <span className={`th-side-badge ${isBuy ? 'buy' : 'sell'}`}>
-                                      {isBuy ? '↑ BUY' : '↓ SELL'}
-                                    </span>
-                                  </td>
-                                  <td className="th-price-cell">{formatCurrency(tradePrice)}</td>
-                                  <td>{tradeAmount.toFixed(6)} {tradeSymbol}</td>
-                                  <td className="th-value-cell">{formatCurrency(tradeTotal)}</td>
-                                  <td>
-                                    {hasPnl ? (
-                                      <span className={`th-pnl-chip ${pnlVal >= 0 ? 'positive' : 'negative'}`}>
-                                        {pnlVal >= 0 ? '+' : ''}{formatCurrency(pnlVal)}
-                                      </span>
-                                    ) : (
-                                      <span className="th-dim-text">—</span>
-                                    )}
-                                  </td>
-                                  <td>
-                                    <span className="th-status-pill">
-                                      <span className="th-status-dot" /> FILLED
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-          </section>
+          <TradeHistorySection
+            selectedNav={selectedNav}
+            transactions={transactions}
+            paperWallet={paperWallet}
+            tradeHistoryFilter={tradeHistoryFilter}
+            setTradeHistoryFilter={setTradeHistoryFilter}
+            user={user}
+            formatCurrency={formatCurrency}
+            setSelectedNav={setSelectedNav}
+          />
 
         </main>
       </div>
 
       {authOpen && (
-        <div className="modal-backdrop" onClick={() => setAuthOpen(false)}>
-          <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <p className="topbar-kicker">Secure access</p>
-                <h3>{authMode === 'login' ? 'Login to BitNexa' : 'Create account'}</h3>
-              </div>
-              <button type="button" className="close-btn" onClick={() => setAuthOpen(false)}>×</button>
-            </div>
-
-            <form className="modal-body" onSubmit={handleAuthSubmit}>
-              {authMode === 'register' && (
-                <label className="modal-field">
-                  Full name
-                  <input type="text" value={authForm.name} onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))} placeholder="Alex Trader" />
-                </label>
-              )}
-
-              <label className="modal-field">
-                Email
-                <input type="email" value={authForm.email} onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))} placeholder="you@example.com" />
-              </label>
-
-              <label className="modal-field">
-                Password
-                <input type="password" value={authForm.password} onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))} placeholder="••••••••" />
-              </label>
-
-              {authError && <div className="error-banner">{authError}</div>}
-
-              <div className="modal-actions">
-                <button type="button" className="ghost-btn" onClick={() => setAuthMode((current) => (current === 'login' ? 'register' : 'login'))}>
-                  {authMode === 'login' ? 'Create account' : 'Use login'}
-                </button>
-                <button type="submit" className="primary-btn">{authMode === 'login' ? 'Login' : 'Register'}</button>
-              </div>
-
-              {authMode === 'login' && (
-                <div className="modal-demo-strip">
-                  <span className="modal-demo-label">Just exploring?</span>
-                  <button type="button" className="demo-login-btn" onClick={handleDemoLogin}>
-                    ⚡ Continue as Demo
-                  </button>
-                </div>
-              )}
-            </form>
-          </div>
-        </div>
+        <AuthModal
+          authMode={authMode}
+          setAuthMode={setAuthMode}
+          authForm={authForm}
+          setAuthForm={setAuthForm}
+          authError={authError}
+          handleAuthSubmit={handleAuthSubmit}
+          handleDemoLogin={handleDemoLogin}
+          onClose={() => setAuthOpen(false)}
+        />
       )}
 
       {adminOpen && (
-        <div className="modal-backdrop" onClick={() => setAdminOpen(false)}>
-          <div className="modal-panel admin-login-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <p className="topbar-kicker" style={{ color: '#f59e0b' }}>🔐 Restricted Access</p>
-                <h3>Admin Control Panel</h3>
-              </div>
-              <button type="button" className="close-btn" onClick={() => setAdminOpen(false)}>×</button>
-            </div>
-            <form className="modal-body" onSubmit={handleAdminLogin}>
-              <label className="modal-field">
-                Admin Email
-                <input
-                  type="email"
-                  value={adminForm.email}
-                  onChange={(e) => setAdminForm((c) => ({ ...c, email: e.target.value }))}
-                  placeholder="admin@bitnexa.com"
-                  autoComplete="off"
-                />
-              </label>
-              <label className="modal-field">
-                Admin Password
-                <input
-                  type="password"
-                  value={adminForm.password}
-                  onChange={(e) => setAdminForm((c) => ({ ...c, password: e.target.value }))}
-                  placeholder="••••••••"
-                />
-              </label>
-              {adminError && <div className="error-banner">{adminError}</div>}
-              <div className="modal-actions">
-                <button type="button" className="ghost-btn" onClick={() => setAdminOpen(false)}>Cancel</button>
-                <button type="submit" className="primary-btn" disabled={adminLoading}>
-                  {adminLoading ? 'Verifying…' : '🔐 Enter Admin Panel'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <AdminModal
+          adminForm={adminForm}
+          setAdminForm={setAdminForm}
+          adminError={adminError}
+          adminLoading={adminLoading}
+          handleAdminLogin={handleAdminLogin}
+          onClose={() => setAdminOpen(false)}
+        />
       )}
 
       {adminPanel && (
-        <div className="admin-panel-overlay">
-          <div className="admin-panel">
-            <div className="admin-panel-header">
-              <div className="admin-panel-title">
-                <span className="admin-badge">⚙️ ADMIN</span>
-                <h2>BitNexa Control Center</h2>
-                <span className="admin-subtitle">Platform Overview · Real-time Data</span>
-              </div>
-              <div className="admin-panel-actions">
-                <button type="button" className="admin-refresh-btn" onClick={handleAdminRefresh} disabled={adminLoading}>
-                  {adminLoading ? '⟳ Loading…' : '⟳ Refresh'}
-                </button>
-                <button type="button" className="admin-logout-btn" onClick={handleAdminLogout}>✕ Exit</button>
-              </div>
-            </div>
-
-            {adminStats && (
-              <div className="admin-stats-grid">
-                <div className="admin-stat-card">
-                  <span className="admin-stat-icon">👥</span>
-                  <div>
-                    <div className="admin-stat-value">{adminStats.totalUsers}</div>
-                    <div className="admin-stat-label">Registered Users</div>
-                  </div>
-                </div>
-                <div className="admin-stat-card">
-                  <span className="admin-stat-icon">📊</span>
-                  <div>
-                    <div className="admin-stat-value">{adminStats.totalTrades}</div>
-                    <div className="admin-stat-label">Total Trades</div>
-                  </div>
-                </div>
-                <div className="admin-stat-card">
-                  <span className="admin-stat-icon">💰</span>
-                  <div>
-                    <div className="admin-stat-value">${Number(adminStats.totalVolume || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
-                    <div className="admin-stat-label">Total Volume (USD)</div>
-                  </div>
-                </div>
-                <div className="admin-stat-card">
-                  <span className="admin-stat-icon">{Number(adminStats.totalPnL || 0) >= 0 ? '📈' : '📉'}</span>
-                  <div>
-                    <div className={`admin-stat-value ${Number(adminStats.totalPnL || 0) >= 0 ? 'positive' : 'negative'}`}>
-                      {Number(adminStats.totalPnL || 0) >= 0 ? '+' : ''}${Number(adminStats.totalPnL || 0).toFixed(2)}
-                    </div>
-                    <div className="admin-stat-label">Platform P&amp;L</div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="admin-panel-body">
-              <div className="admin-users-section">
-                <h3 className="admin-section-title">Registered Users ({adminUsers.length})</h3>
-                {adminUsers.length === 0 && !adminLoading && (
-                  <div className="admin-empty">No registered users yet. Users will appear here after they sign up.</div>
-                )}
-                {adminLoading && adminUsers.length === 0 && (
-                  <div className="admin-empty">Loading users…</div>
-                )}
-                <div className="admin-users-table-wrap">
-                  <table className="admin-users-table">
-                    <thead>
-                      <tr>
-                        <th>User</th>
-                        <th>Joined</th>
-                        <th>Trades</th>
-                        <th>Buy Vol</th>
-                        <th>Sell Vol</th>
-                        <th>P&amp;L</th>
-                        <th>Positions</th>
-                        <th>Watchlist</th>
-                        <th>Detail</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adminUsers.map((u) => (
-                        <tr key={u.id} className={adminSelectedUser?.id === u.id ? 'admin-row-selected' : ''}>
-                          <td>
-                            <div className="admin-user-cell">
-                              <span className="admin-user-avatar">{(u.name || 'U').charAt(0).toUpperCase()}</span>
-                              <div>
-                                <div className="admin-user-name">{u.name}</div>
-                                <div className="admin-user-email">{u.email}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="admin-td-muted">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</td>
-                          <td className="admin-td-center">
-                            <span className="admin-badge-count">{u.tradeCount}</span>
-                          </td>
-                          <td className="positive">${Number(u.totalBuyVolume || 0).toFixed(2)}</td>
-                          <td className="admin-td-muted">${Number(u.totalSellVolume || 0).toFixed(2)}</td>
-                          <td className={Number(u.realizedPnL || 0) >= 0 ? 'positive' : 'negative'}>
-                            {Number(u.realizedPnL || 0) >= 0 ? '+' : ''}${Number(u.realizedPnL || 0).toFixed(2)}
-                          </td>
-                          <td className="admin-td-center">{u.openPositions}</td>
-                          <td className="admin-td-center">{u.watchlistCount}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="admin-detail-btn"
-                              onClick={() => setAdminSelectedUser(adminSelectedUser?.id === u.id ? null : u)}
-                            >
-                              {adminSelectedUser?.id === u.id ? 'Hide' : 'View'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {adminSelectedUser && (
-                <div className="admin-user-detail">
-                  <div className="admin-detail-header">
-                    <span className="admin-user-avatar large">{(adminSelectedUser.name || 'U').charAt(0).toUpperCase()}</span>
-                    <div>
-                      <h4>{adminSelectedUser.name}</h4>
-                      <span className="admin-user-email">{adminSelectedUser.email}</span>
-                    </div>
-                    <button type="button" className="admin-logout-btn" style={{ marginLeft: 'auto' }} onClick={() => setAdminSelectedUser(null)}>✕ Close</button>
-                  </div>
-                  <div className="admin-detail-stats">
-                    <div className="admin-detail-stat"><span>Total Trades</span><strong>{adminSelectedUser.tradeCount}</strong></div>
-                    <div className="admin-detail-stat"><span>Buys</span><strong className="positive">{adminSelectedUser.buyCount}</strong></div>
-                    <div className="admin-detail-stat"><span>Sells</span><strong>{adminSelectedUser.sellCount}</strong></div>
-                    <div className="admin-detail-stat"><span>Buy Volume</span><strong className="positive">${Number(adminSelectedUser.totalBuyVolume).toFixed(2)}</strong></div>
-                    <div className="admin-detail-stat"><span>Sell Volume</span><strong>${Number(adminSelectedUser.totalSellVolume).toFixed(2)}</strong></div>
-                    <div className="admin-detail-stat"><span>Realized P&amp;L</span><strong className={Number(adminSelectedUser.realizedPnL) >= 0 ? 'positive' : 'negative'}>{Number(adminSelectedUser.realizedPnL) >= 0 ? '+' : ''}${Number(adminSelectedUser.realizedPnL).toFixed(2)}</strong></div>
-                    <div className="admin-detail-stat"><span>Open Positions</span><strong>{adminSelectedUser.openPositions}</strong></div>
-                    <div className="admin-detail-stat"><span>Watchlist Coins</span><strong>{adminSelectedUser.watchlistCount}</strong></div>
-                    <div className="admin-detail-stat"><span>Alerts Set</span><strong>{adminSelectedUser.alertCount}</strong></div>
-                  </div>
-                  {adminSelectedUser.recentTrades && adminSelectedUser.recentTrades.length > 0 && (
-                    <div className="admin-recent-trades">
-                      <h5>Recent Trades</h5>
-                      <table className="admin-users-table">
-                        <thead>
-                          <tr>
-                            <th>Symbol</th>
-                            <th>Side</th>
-                            <th>Amount</th>
-                            <th>Price</th>
-                            <th>Total</th>
-                            <th>P&amp;L</th>
-                            <th>Date</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {adminSelectedUser.recentTrades.map((t, i) => (
-                            <tr key={t.id || i}>
-                              <td><strong>{t.symbol}</strong></td>
-                              <td className={t.side === 'buy' ? 'positive' : 'negative'}>{String(t.side || '').toUpperCase()}</td>
-                              <td>{Number(t.amount || 0).toFixed(6)}</td>
-                              <td>${Number(t.price || 0).toLocaleString()}</td>
-                              <td>${Number(t.quote || 0).toFixed(2)}</td>
-                              <td className={Number(t.pnl || 0) >= 0 ? 'positive' : 'negative'}>
-                                {t.pnl !== undefined ? `${Number(t.pnl) >= 0 ? '+' : ''}$${Number(t.pnl).toFixed(2)}` : '—'}
-                              </td>
-                              <td className="admin-td-muted">{t.timestamp ? new Date(t.timestamp).toLocaleDateString() : '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  {(!adminSelectedUser.recentTrades || adminSelectedUser.recentTrades.length === 0) && (
-                    <div className="admin-empty" style={{ marginTop: '1rem' }}>This user has not made any trades yet.</div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="admin-panel-footer">
-              <span>BitNexa Admin · Session expires in 4h</span>
-              <span>Last updated: {new Date().toLocaleTimeString()}</span>
-            </div>
-          </div>
-        </div>
+        <AdminPanel
+          adminStats={adminStats}
+          adminUsers={adminUsers}
+          adminLoading={adminLoading}
+          adminSelectedUser={adminSelectedUser}
+          setAdminSelectedUser={setAdminSelectedUser}
+          handleAdminRefresh={handleAdminRefresh}
+          handleAdminLogout={handleAdminLogout}
+        />
       )}
+
 
       <div className="toast-stack">
         {toasts.map((toast) => (
@@ -3925,3 +3257,4 @@ function App() {
 }
 
 export default App;
+
