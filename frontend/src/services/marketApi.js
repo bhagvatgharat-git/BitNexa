@@ -45,6 +45,28 @@ async function request(path, options = {}) {
 }
 
 export const marketApi = {
+  getCurrencyRates() {
+    return request('/api/exchange-rates');
+  },
+  getBinanceStatus() {
+    return request('/api/binance/status');
+  },
+  getBinanceAccount(token) {
+    return request('/api/binance/account', {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    });
+  },
+  placeBinanceOrder(token, entry) {
+    return request('/api/binance/order', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(entry),
+    });
+  },
   getMarket(ids = []) {
     const query = Array.isArray(ids) && ids.length ? ids.join(',') : '';
     return request(`/api/market${query ? `?ids=${encodeURIComponent(query)}` : ''}`);
@@ -58,6 +80,9 @@ export const marketApi = {
   },
   getOhlc(id, days = 7) {
     return request(`/api/ohlc/${encodeURIComponent(id)}?days=${days}`);
+  },
+  getBinanceKlines(symbol, interval) {
+    return request(`/api/binance/klines/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}`);
   },
   getTrending() {
     return request('/api/trending');
@@ -185,6 +210,23 @@ export const marketApi = {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(entry),
+    });
+  },
+  adminLogin(payload) {
+    return request('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+  getAdminUsers(adminToken) {
+    return request('/api/admin/users', {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${adminToken}` },
+    });
+  },
+  getAdminStats(adminToken) {
+    return request('/api/admin/stats', {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${adminToken}` },
     });
   },
 };

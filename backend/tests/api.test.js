@@ -10,6 +10,36 @@ test('GET /api/health returns ok', async () => {
   assert.equal(response.body.status, 'ok');
 });
 
+test('GET /api/exchange-rates returns positive USD-based rates', async () => {
+  const response = await request(app).get('/api/exchange-rates');
+  assert.equal(response.status, 200);
+  assert.equal(response.body.base, 'usd');
+  assert.equal(response.body.rates.usd, 1);
+  assert.ok(Object.values(response.body.rates).every((rate) => Number.isFinite(rate) && rate > 0));
+});
+
+test('GET /api/binance/status does not expose credentials', async () => {
+  const response = await request(app).get('/api/binance/status');
+  assert.equal(response.status, 200);
+  assert.equal(response.body.exchange, 'Binance Spot');
+  assert.equal(Object.hasOwn(response.body, 'apiKey'), false);
+  assert.equal(Object.hasOwn(response.body, 'apiSecret'), false);
+});
+
+test('GET /api/binance/klines rejects unsupported chart intervals', async () => {
+  const response = await request(app).get('/api/binance/klines/BTCUSDT?interval=10m');
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /Interval must be one of/);
+});
+
+test('POST /api/binance/order requires app authentication', async () => {
+  const response = await request(app)
+    .post('/api/binance/order')
+    .send({ symbol: 'BTCUSDT', side: 'BUY', quantity: '0.001' });
+
+  assert.equal(response.status, 401);
+});
+
 test('POST /api/auth/register creates a user and returns a token', async () => {
   const response = await request(app)
     .post('/api/auth/register')
@@ -135,6 +165,35 @@ test('POST /api/transactions stores and returns order history for an authenticat
 
   assert.equal(listResponse.status, 200);
   assert.equal(listResponse.body.transactions.length >= 1, true);
+});
+
+test('GET /api/notifications returns recent account activity for an authenticated user', async () => {
+  const email = 'notifications-demo@example.com';
+  const register = await request(app)
+    .post('/api/auth/register')
+    .send({
+      name: 'Notification User',
+      email,
+      password: 'Password123!'
+    });
+
+  await request(app)
+    .post('/api/alerts')
+    .set('Authorization', `Bearer ${register.body.token}`)
+    .send({
+      coinId: 'bitcoin',
+      targetPrice: 70000,
+      direction: 'above',
+    });
+
+  const response = await request(app)
+    .get('/api/notifications')
+    .set('Authorization', `Bearer ${register.body.token}`);
+
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(response.body.notifications));
+  assert.ok(response.body.notifications.length >= 1);
+  assert.ok(typeof response.body.notifications[0].message === 'string');
 });
 
 test('GET /api/portfolio/summary returns live portfolio metrics for an authenticated user', async () => {

@@ -11,6 +11,51 @@ const TRADING_VIEW_TOP_COINS = [
 ];
 
 const DEFAULT_IDS = Array.from(new Set(TRADING_VIEW_TOP_COINS)).slice(0, 100);
+const FIAT_CURRENCY_CODES = ['usd', 'eur', 'gbp', 'inr', 'jpy', 'cad', 'aud'];
+const CURRENCY_RATES_CACHE_MS = 15 * 60 * 1000;
+const MARKET_DATA_CACHE_MS = 60 * 1000;
+const CHART_DATA_CACHE_MS = 60 * 1000;
+const TRENDING_CACHE_MS = 5 * 60 * 1000;
+let currencyRatesCache = { usd: 1 };
+let currencyRatesCachedAt = 0;
+let providerRetryAfter = 0;
+const responseCache = new Map();
+const pendingRequests = new Map();
+
+const getCachedResponse = (key, ttl, fetcher) => {
+  const cached = responseCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.data);
+  if (pendingRequests.has(key)) return pendingRequests.get(key);
+
+  const pending = fetcher()
+    .then((data) => {
+      responseCache.set(key, { data, expiresAt: Date.now() + ttl });
+      return data;
+    })
+    .finally(() => pendingRequests.delete(key));
+  pendingRequests.set(key, pending);
+  return pending;
+};
+
+const getCoinGecko = async (url, options = {}) => {
+  if (Date.now() < providerRetryAfter) {
+    throw new Error('CoinGecko rate limit cooldown is active.');
+  }
+
+  const apiKey = process.env.COINGECKO_API_KEY;
+  try {
+    return await axios.get(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        ...(apiKey ? { 'x-cg-demo-api-key': apiKey } : {}),
+      },
+    });
+  } catch (error) {
+    if (error.response?.status === 429) providerRetryAfter = Date.now() + 60 * 1000;
+    throw error;
+  }
+};
 
 const createCoinAvatarImage = (id, symbol = 'C') => {
   const safeId = (id || 'coin').toString().trim();
@@ -244,18 +289,20 @@ const getMockChartData = (id, days) => {
   const totalPoints = Math.max(days, 7);
   const basePrice = baseCoin.current_price;
   const labels = [];
+  const times = [];
   const prices = [];
 
   for (let i = totalPoints; i >= 1; i -= 1) {
     const date = new Date();
     date.setDate(date.getDate() - i);
     labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    times.push(Math.floor(date.getTime() / 1000));
     const wave = Math.sin(i / 2.1) * (basePrice * 0.08);
     const drift = (basePrice * 0.04) * (totalPoints - i) / totalPoints;
     prices.push(Number((basePrice + wave - drift).toFixed(2)));
   }
 
-  return { labels, prices };
+  return { labels, times, prices };
 };
 
 const buildMarketOverview = (coins = []) => {
@@ -326,28 +373,60 @@ const buildFallbackOHLC = (id, days = 7) => {
   return candles;
 };
 
+async function getCurrencyRates() {
+  if (currencyRatesCachedAt && Date.now() - currencyRatesCachedAt < CURRENCY_RATES_CACHE_MS) {
+    return { base: 'usd', rates: { ...currencyRatesCache }, source: 'cache' };
+  }
+
+  try {
+    const { data } = await getCoinGecko('https://api.coingecko.com/api/v3/exchange_rates', { timeout: 5000 });
+    const usdPerBitcoin = Number(data?.rates?.usd?.value);
+    if (!Number.isFinite(usdPerBitcoin) || usdPerBitcoin <= 0) {
+      throw new Error('CoinGecko returned an invalid USD exchange rate.');
+    }
+
+    const rates = { usd: 1 };
+    for (const code of FIAT_CURRENCY_CODES) {
+      if (code === 'usd') continue;
+      const currencyPerBitcoin = Number(data?.rates?.[code]?.value);
+      if (Number.isFinite(currencyPerBitcoin) && currencyPerBitcoin > 0) {
+        rates[code] = currencyPerBitcoin / usdPerBitcoin;
+      }
+    }
+
+    currencyRatesCache = rates;
+    currencyRatesCachedAt = Date.now();
+    return { base: 'usd', rates: { ...rates }, source: 'coingecko' };
+  } catch (error) {
+    console.error('CoinGecko exchange-rate fetch failed:', error.message);
+    return { base: 'usd', rates: { ...currencyRatesCache }, source: 'fallback' };
+  }
+}
+
 async function getMarketData(idsParam) {
   const ids = parseIds(idsParam);
 
-  try {
-    const { data } = await axios.get('https://api.coingecko.com/api/v3/coins/markets', {
-      params: {
-        vs_currency: 'usd',
-        ids: ids.join(','),
-        order: 'market_cap_desc',
-        per_page: 100,
-        page: 1,
-        sparkline: true,
-        price_change_percentage: '24h,7d,30d',
-      },
-      timeout: 12000,
-    });
+  return getCachedResponse(`market:${ids.join(',')}`, MARKET_DATA_CACHE_MS, async () => {
+    try {
+      const { data } = await getCoinGecko('https://api.coingecko.com/api/v3/coins/markets', {
+        params: {
+          vs_currency: 'usd',
+          ids: ids.join(','),
+          order: 'market_cap_desc',
+          per_page: 100,
+          page: 1,
+          sparkline: true,
+          price_change_percentage: '24h,7d,30d',
+        },
+        timeout: 12000,
+      });
 
-    return data;
-  } catch (error) {
-    console.error('CoinGecko market fetch failed:', error.message);
-    return getMockMarketData(ids);
-  }
+      return data.map((coin) => ({ ...coin, data_source: 'live' }));
+    } catch (error) {
+      console.error('CoinGecko market fetch failed:', error.message);
+      return getMockMarketData(ids).map((coin) => ({ ...coin, data_source: 'fallback' }));
+    }
+  });
 }
 
 async function getOverview(idsParam) {
@@ -363,105 +442,114 @@ async function getOverview(idsParam) {
 }
 
 async function getTrending() {
-  try {
-    const { data } = await axios.get('https://api.coingecko.com/api/v3/search/trending', { timeout: 12000 });
-    return { coins: (data.coins || []).slice(0, 5).map((entry) => {
-      const item = entry?.item || {};
-      return {
-        id: item.id,
-        symbol: item.symbol,
-        name: item.name,
-        image: item.large || item.thumb || item.small || item.image || null,
-        price: item.price_btc || 0,
-        percent_change_24h: item.data?.price_change_percentage_24h?.usd || 0,
-        market_cap: item.market_cap_rank || 0,
-      };
-    }) };
-  } catch (error) {
-    console.error('CoinGecko trending fetch failed:', error.message);
-    return { coins: buildFallbackTrending() };
-  }
+  return getCachedResponse('trending', TRENDING_CACHE_MS, async () => {
+    try {
+      const { data } = await getCoinGecko('https://api.coingecko.com/api/v3/search/trending', { timeout: 12000 });
+      return { coins: (data.coins || []).slice(0, 5).map((entry) => {
+        const item = entry?.item || {};
+        return {
+          id: item.id,
+          symbol: item.symbol,
+          name: item.name,
+          image: item.large || item.thumb || item.small || item.image || null,
+          price: item.price_btc || 0,
+          percent_change_24h: item.data?.price_change_percentage_24h?.usd || 0,
+          market_cap: item.market_cap_rank || 0,
+        };
+      }) };
+    } catch (error) {
+      console.error('CoinGecko trending fetch failed:', error.message);
+      return { coins: buildFallbackTrending() };
+    }
+  });
 }
 
 async function getCoinById(id) {
-  try {
-    const { data } = await axios.get(`https://api.coingecko.com/api/v3/coins/${id}`, {
-      params: {
-        localization: false,
-        tickers: false,
-        market_data: true,
-        community_data: false,
-        developer_data: false,
-        sparkline: false,
-      },
-      timeout: 12000,
-    });
+  return getCachedResponse(`coin:${id}`, MARKET_DATA_CACHE_MS, async () => {
+    try {
+      const { data } = await getCoinGecko(`https://api.coingecko.com/api/v3/coins/${id}`, {
+        params: {
+          localization: false,
+          tickers: false,
+          market_data: true,
+          community_data: false,
+          developer_data: false,
+          sparkline: false,
+        },
+        timeout: 12000,
+      });
 
-    return data;
-  } catch (error) {
-    console.error('CoinGecko coin fetch failed:', error.message);
-    return getMockMarketData([id])[0] || getMockMarketData(DEFAULT_IDS)[0];
-  }
+      return { ...data, data_source: 'live' };
+    } catch (error) {
+      console.error('CoinGecko coin fetch failed:', error.message);
+      return { ...(getMockMarketData([id])[0] || getMockMarketData(DEFAULT_IDS)[0]), data_source: 'fallback' };
+    }
+  });
 }
 
 async function getChartData(id, days = 7) {
-  try {
-    const { data } = await axios.get(`https://api.coingecko.com/api/v3/coins/${id}/market_chart`, {
-      params: {
-        vs_currency: 'usd',
-        days,
-        interval: 'daily',
-      },
-      timeout: 12000,
-    });
+  return getCachedResponse(`chart:${id}:${days}`, CHART_DATA_CACHE_MS, async () => {
+    try {
+      const { data } = await getCoinGecko(`https://api.coingecko.com/api/v3/coins/${id}/market_chart`, {
+        params: {
+          vs_currency: 'usd',
+          days,
+        },
+        timeout: 12000,
+      });
 
-    const labels = data.prices.map(([timestamp]) =>
-      new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    );
-    const prices = data.prices.map(([, price]) => Number(price));
+      const labels = data.prices.map(([timestamp]) =>
+        new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      );
+      const times = data.prices.map(([timestamp]) => Math.floor(timestamp / 1000));
+      const prices = data.prices.map(([, price]) => Number(price));
 
-    return { labels, prices };
-  } catch (error) {
-    console.error('CoinGecko chart fetch failed:', error.message);
-    return getMockChartData(id, Number(days) || 7);
-  }
+      return { labels, times, prices, source: 'live' };
+    } catch (error) {
+      console.error('CoinGecko chart fetch failed:', error.message);
+      return { ...getMockChartData(id, days === 'max' ? 365 : Number(days) || 7), source: 'fallback' };
+    }
+  });
 }
 
 async function getOhlcData(id, days = 7) {
-  try {
-    const { data } = await axios.get(`https://api.coingecko.com/api/v3/coins/${id}/ohlc`, {
-      params: {
-        vs_currency: 'usd',
-        days,
-      },
-      timeout: 12000,
-    });
+  return getCachedResponse(`ohlc:${id}:${days}`, CHART_DATA_CACHE_MS, async () => {
+    try {
+      const { data } = await getCoinGecko(`https://api.coingecko.com/api/v3/coins/${id}/ohlc`, {
+        params: {
+          vs_currency: 'usd',
+          days,
+        },
+        timeout: 12000,
+      });
 
-    const candles = (Array.isArray(data) ? data : []).map(([timestamp, open, high, low, close]) => {
-      const date = new Date(timestamp);
-      return {
-        time: date.toISOString(),
-        label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        open: Number(open),
-        high: Number(high),
-        low: Number(low),
-        close: Number(close),
-        range: Number((Math.abs(high - low)).toFixed(2)),
-        direction: close >= open ? 'up' : 'down',
-      };
-    });
+      const candles = (Array.isArray(data) ? data : []).map(([timestamp, open, high, low, close]) => {
+        const date = new Date(timestamp);
+        return {
+          time: date.toISOString(),
+          label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          open: Number(open),
+          high: Number(high),
+          low: Number(low),
+          close: Number(close),
+          range: Number((Math.abs(high - low)).toFixed(2)),
+          direction: close >= open ? 'up' : 'down',
+        };
+      });
 
-    return { candles };
-  } catch (error) {
-    console.error('CoinGecko OHLC fetch failed:', error.message);
-    return { candles: buildFallbackOHLC(id, Number(days) || 7) };
-  }
+      return { candles, source: 'live' };
+    } catch (error) {
+      console.error('CoinGecko OHLC fetch failed:', error.message);
+      return { candles: buildFallbackOHLC(id, days === 'max' ? 365 : Number(days) || 7), source: 'fallback' };
+    }
+  });
 }
 
 module.exports = {
   DEFAULT_IDS,
   getMarketData,
   getOverview,
+  getCurrencyRates,
   getTrending,
   getCoinById,
   getChartData,
