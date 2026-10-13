@@ -131,6 +131,8 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests. Please slow down and retry later.' },
 });
 
+const path = require('path');
+
 const swaggerSpec = swaggerJsdoc({
   definition: {
     openapi: '3.0.0',
@@ -143,7 +145,7 @@ const swaggerSpec = swaggerJsdoc({
       { url: 'http://localhost:5001', description: 'Local development server' },
     ],
   },
-  apis: ['./server.js'],
+  apis: [path.join(__dirname, 'server.js')],
 });
 
 const hashPassword = (password) => crypto.createHash('sha256').update(String(password)).digest('hex');
@@ -330,6 +332,15 @@ const evaluateAlertStatus = (alert, currentPrice) => {
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
+
+// Vercel serverless URL normalization middleware
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api') && req.url !== '/') {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
+
 app.use('/api/', apiLimiter);
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -1109,6 +1120,16 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
 });
 
 
+
+// Global Express error handler
+app.use((err, req, res, next) => {
+  console.error('Express uncaught error:', err);
+  if (res.headersSent) return next(err);
+  return res.status(500).json({
+    error: 'Internal server error',
+    message: err?.message || 'Unexpected server error',
+  });
+});
 
 let serverInstance = null;
 
