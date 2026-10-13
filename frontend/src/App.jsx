@@ -23,7 +23,24 @@ import AdminModal from './components/AdminModal';
 import AdminPanel from './components/AdminPanel';
 import WatchlistSection from './components/WatchlistSection';
 import TradeHistorySection from './components/TradeHistorySection';
-import { closePaperPosition, createDemoWallet, DEMO_WALLET_STORAGE_KEY, executePaperTrade, STARTING_DEMO_CASH } from './services/paperTrading';
+import { closePaperPosition, createDemoWallet, DEMO_WALLET_STORAGE_KEY, executePaperTrade, getUserWalletKey, loadUserWallet, saveUserWallet, STARTING_DEMO_CASH } from './services/paperTrading';
+
+const getUserWatchlistKey = (u) => {
+  if (!u) return 'bitnexa-watchlist-guest';
+  const id = u.id || u.email;
+  return id ? `bitnexa-watchlist-${String(id).toLowerCase().replace(/[^a-z0-9_-]/g, '_')}` : 'bitnexa-watchlist-guest';
+};
+
+const loadUserWatchlist = (u) => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const key = getUserWatchlistKey(u);
+    const saved = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+};
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler, ArcElement, zoomPlugin);
 
@@ -109,17 +126,26 @@ function App() {
   const [liveTrades, setLiveTrades] = useState([]);
   const [liveAccountError, setLiveAccountError] = useState('');
   const [amount, setAmount] = useState('0.5');
+  const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('bitnexa-token') || '';
+  });
+  const [user, setUser] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return JSON.parse(localStorage.getItem('bitnexa-user') || 'null');
+    } catch {
+      return null;
+    }
+  });
   const [paperWallet, setPaperWallet] = useState(() => {
     if (typeof window === 'undefined') return createDemoWallet();
     try {
-      const savedWallet = JSON.parse(localStorage.getItem(DEMO_WALLET_STORAGE_KEY) || 'null');
-      if (savedWallet && Number.isFinite(Number(savedWallet.cash)) && Array.isArray(savedWallet.positions) && Array.isArray(savedWallet.trades)) {
-        return savedWallet;
-      }
+      const initialUser = JSON.parse(localStorage.getItem('bitnexa-user') || 'null');
+      return loadUserWallet(initialUser);
     } catch {
       return createDemoWallet();
     }
-    return createDemoWallet();
   });
   const [theme, setTheme] = useState('dark');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -132,21 +158,10 @@ function App() {
   const [watchlist, setWatchlist] = useState(() => {
     if (typeof window === 'undefined') return [];
     try {
-      return JSON.parse(localStorage.getItem('bitnexa-watchlist') || '[]');
+      const initialUser = JSON.parse(localStorage.getItem('bitnexa-user') || 'null');
+      return loadUserWatchlist(initialUser);
     } catch {
       return [];
-    }
-  });
-  const [token, setToken] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem('bitnexa-token') || '';
-  });
-  const [user, setUser] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      return JSON.parse(localStorage.getItem('bitnexa-user') || 'null');
-    } catch {
-      return null;
     }
   });
   const [authOpen, setAuthOpen] = useState(false);
@@ -252,15 +267,19 @@ function App() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem(DEMO_WALLET_STORAGE_KEY, JSON.stringify(paperWallet));
+      saveUserWallet(user, paperWallet);
     }
-  }, [paperWallet]);
+  }, [paperWallet, user?.id, user?.email]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('bitnexa-watchlist', JSON.stringify(watchlist));
+      const key = getUserWatchlistKey(user);
+      localStorage.setItem(key, JSON.stringify(watchlist));
+      try {
+        localStorage.removeItem('bitnexa-watchlist');
+      } catch {}
     }
-  }, [watchlist]);
+  }, [watchlist, user?.id, user?.email]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1289,29 +1308,37 @@ function App() {
   const handleResetDemoWallet = () => {
     const freshWallet = createDemoWallet();
     setPaperWallet(freshWallet);
+    saveUserWallet(user, freshWallet);
     setToast({ id: Date.now(), type: 'success', text: `Demo portfolio reset to ${formatCurrency(STARTING_DEMO_CASH)} cash.` });
   };
 
   useEffect(() => {
-    if (!token || !user) return;
-
-    const syncWatchlist = async () => {
-      try {
-        await marketApi.saveWatchlist(token, watchlist);
-      } catch (error) {
-        console.error('Unable to sync watchlist:', error);
-      }
-    };
-
-    syncWatchlist();
-  }, [token, user, watchlist]);
+    setPaperWallet(loadUserWallet(user));
+    setWatchlist(loadUserWatchlist(user));
+    setPortfolio({ positions: [], totalValue: 0 });
+    setPortfolioSummary({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
+    setPortfolioInsights({
+      diversificationScore: 0,
+      concentrationRisk: 0,
+      topPerformer: 'N/A',
+      largestPosition: 'N/A',
+      rebalancingNote: user ? 'Add positions to unlock insights.' : 'Log in to view portfolio insights.',
+      allocations: [],
+    });
+    setTransactions([]);
+    setAlerts([]);
+  }, [user?.id, user?.email]);
 
   useEffect(() => {
     if (!token || !user) {
       setPortfolio({ positions: [], totalValue: 0 });
+      setPortfolioSummary({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
       setAlerts([]);
+      setTransactions([]);
       return;
     }
+
+    let isSubscribed = true;
 
     const loadUserData = async () => {
       try {
@@ -1324,26 +1351,24 @@ function App() {
           marketApi.getTransactions(token),
         ]);
 
+        if (!isSubscribed) return;
+
         if (Array.isArray(watchlistResponse?.coinIds)) {
           setWatchlist(watchlistResponse.coinIds);
         }
 
-        if (portfolioResponse && typeof portfolioResponse === 'object') {
-          setPortfolio({
-            positions: Array.isArray(portfolioResponse.positions) ? portfolioResponse.positions : [],
-            totalValue: Number(portfolioResponse.totalValue || 0),
-          });
-        }
+        setPortfolio({
+          positions: Array.isArray(portfolioResponse?.positions) ? portfolioResponse.positions : [],
+          totalValue: Number(portfolioResponse?.totalValue || 0),
+        });
 
-        if (portfolioSummaryResponse && typeof portfolioSummaryResponse === 'object') {
-          setPortfolioSummary({
-            totalValue: Number(portfolioSummaryResponse.totalValue || 0),
-            totalInvested: Number(portfolioSummaryResponse.totalInvested || 0),
-            change: Number(portfolioSummaryResponse.change || 0),
-            changePercent: Number(portfolioSummaryResponse.changePercent || 0),
-            positions: Array.isArray(portfolioSummaryResponse.positions) ? portfolioSummaryResponse.positions : [],
-          });
-        }
+        setPortfolioSummary({
+          totalValue: Number(portfolioSummaryResponse?.totalValue || 0),
+          totalInvested: Number(portfolioSummaryResponse?.totalInvested || 0),
+          change: Number(portfolioSummaryResponse?.change || 0),
+          changePercent: Number(portfolioSummaryResponse?.changePercent || 0),
+          positions: Array.isArray(portfolioSummaryResponse?.positions) ? portfolioSummaryResponse.positions : [],
+        });
 
         if (portfolioInsightsResponse && typeof portfolioInsightsResponse === 'object') {
           setPortfolioInsights({
@@ -1356,25 +1381,32 @@ function App() {
           });
         }
 
-        if (Array.isArray(alertsResponse?.alerts)) {
-          setAlerts(alertsResponse.alerts);
-        }
-
-        if (Array.isArray(transactionsResponse?.transactions)) setTransactions(transactionsResponse.transactions);
+        setAlerts(Array.isArray(alertsResponse?.alerts) ? alertsResponse.alerts : []);
+        setTransactions(Array.isArray(transactionsResponse?.transactions) ? transactionsResponse.transactions : []);
       } catch (error) {
         console.error('Unable to load synced user data:', error);
       }
     };
 
     loadUserData();
-  }, [token, user]);
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [token, user?.id, user?.email]);
 
   const toggleWatchlist = (coinId) => {
-    setWatchlist((current) =>
-      current.includes(coinId)
+    setWatchlist((current) => {
+      const next = current.includes(coinId)
         ? current.filter((id) => id !== coinId)
-        : [...current, coinId]
-    );
+        : [...current, coinId];
+      if (token) {
+        marketApi.saveWatchlist(token, next).catch((err) => {
+          console.error('Unable to sync watchlist:', err);
+        });
+      }
+      return next;
+    });
   };
 
   const handleAuthSubmit = async (event) => {
@@ -1393,6 +1425,22 @@ function App() {
 
       const response = await (authMode === 'login' ? marketApi.login(payload) : marketApi.register(payload));
       const nextUser = response.user || { name: name || 'BitNexa Trader', email };
+
+      // Immediately reset and load user's isolated data
+      setPortfolio({ positions: [], totalValue: 0 });
+      setPortfolioSummary({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
+      setPortfolioInsights({
+        diversificationScore: 0,
+        concentrationRisk: 0,
+        topPerformer: 'N/A',
+        largestPosition: 'N/A',
+        rebalancingNote: 'Add positions to unlock insights.',
+        allocations: [],
+      });
+      setTransactions([]);
+      setAlerts([]);
+      setPaperWallet(loadUserWallet(nextUser));
+      setWatchlist(loadUserWatchlist(nextUser));
 
       setUser(nextUser);
       setToken(response.token || '');
@@ -1419,12 +1467,16 @@ function App() {
     });
     setAlerts([]);
     setTransactions([]);
+    setWatchlist([]);
     setPaperWallet(createDemoWallet());
     try {
       localStorage.removeItem(DEMO_WALLET_STORAGE_KEY);
+      localStorage.removeItem('bitnexa-paper-wallet');
+      localStorage.removeItem('bitnexa-paper-wallet-guest');
       localStorage.removeItem('bitnexa-user');
       localStorage.removeItem('bitnexa-token');
       localStorage.removeItem('bitnexa-watchlist');
+      localStorage.removeItem('bitnexa-watchlist-guest');
     } catch {}
     if (selectedNav === 'Portfolio' || selectedNav === 'Trade History') {
       setSelectedNav('Dashboard');
@@ -1434,6 +1486,20 @@ function App() {
 
   const handleDemoLogin = () => {
     const demoUser = { name: 'Demo Trader', email: 'demo@example.com', id: 'demo-user' };
+    setPortfolio({ positions: [], totalValue: 0 });
+    setPortfolioSummary({ totalValue: 0, totalInvested: 0, change: 0, changePercent: 0, positions: [] });
+    setPortfolioInsights({
+      diversificationScore: 0,
+      concentrationRisk: 0,
+      topPerformer: 'N/A',
+      largestPosition: 'N/A',
+      rebalancingNote: 'Add positions to unlock insights.',
+      allocations: [],
+    });
+    setTransactions([]);
+    setAlerts([]);
+    setPaperWallet(loadUserWallet(demoUser));
+    setWatchlist(loadUserWatchlist(demoUser));
     setUser(demoUser);
     setToken('');
     setAuthOpen(false);

@@ -7,6 +7,33 @@ export const createDemoWallet = () => ({
   trades: [],
 });
 
+export const getUserWalletKey = (user) => {
+  if (!user) return 'bitnexa-paper-wallet-guest';
+  const id = user.id || user.email;
+  return id ? `bitnexa-paper-wallet-${String(id).toLowerCase().replace(/[^a-z0-9_-]/g, '_')}` : 'bitnexa-paper-wallet-guest';
+};
+
+export const loadUserWallet = (user) => {
+  if (typeof window === 'undefined') return createDemoWallet();
+  try {
+    const key = getUserWalletKey(user);
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if (saved && Number.isFinite(Number(saved.cash)) && Array.isArray(saved.positions) && Array.isArray(saved.trades)) {
+      return saved;
+    }
+  } catch {}
+  return createDemoWallet();
+};
+
+export const saveUserWallet = (user, wallet) => {
+  if (typeof window === 'undefined' || !wallet) return;
+  try {
+    const key = getUserWalletKey(user);
+    localStorage.setItem(key, JSON.stringify(wallet));
+    localStorage.removeItem(DEMO_WALLET_STORAGE_KEY);
+  } catch {}
+};
+
 const roundCash = (value) => Number(value.toFixed(2));
 const roundQuantity = (value) => Number(value.toFixed(8));
 
