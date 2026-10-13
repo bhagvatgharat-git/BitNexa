@@ -39,7 +39,6 @@ const TRADING_VIEW_TOP_COINS = normalizeCoinIds([
 ]);
 
 const TOP_50_IDS = TRADING_VIEW_TOP_COINS;
-const DEFAULT_IDS = TRADING_VIEW_TOP_COINS;
 
 const getSafeCoinImage = (coin) => {
   const candidates = [
@@ -559,17 +558,14 @@ function App() {
   };
 
   const marketFilterCounts = useMemo(() => {
-    return {
-      all: coins.length,
-      gainers: coins.filter((coin) => (Number(coin.price_change_percentage_24h) || 0) >= 0).length,
-      losers: coins.filter((coin) => (Number(coin.price_change_percentage_24h) || 0) < 0).length,
-      layer1: coins.filter((coin) => getCoinSegment(coin) === 'layer1').length,
-      defi: coins.filter((coin) => getCoinSegment(coin) === 'defi').length,
-      stable: coins.filter((coin) => getCoinSegment(coin) === 'stable').length,
-      meme: coins.filter((coin) => getCoinSegment(coin) === 'meme').length,
-      ai: coins.filter((coin) => getCoinSegment(coin) === 'ai').length,
-      watchlist: coins.filter((coin) => watchlist.includes(coin.id)).length,
-    };
+    const counts = { all: coins.length, gainers: 0, losers: 0, layer1: 0, defi: 0, stable: 0, meme: 0, ai: 0, watchlist: 0 };
+    for (const coin of coins) {
+      if ((Number(coin.price_change_percentage_24h) || 0) >= 0) counts.gainers++; else counts.losers++;
+      const seg = getCoinSegment(coin);
+      if (counts[seg] !== undefined) counts[seg]++;
+      if (watchlist.includes(coin.id)) counts.watchlist++;
+    }
+    return counts;
   }, [coins, watchlist]);
 
   const marketSegmentOptions = useMemo(() => [
@@ -840,10 +836,7 @@ function App() {
     [coins]
   );
 
-  const trendingCoins = useMemo(
-    () => [...coins].sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0)).slice(0, 3),
-    [coins]
-  );
+  const trendingCoins = useMemo(() => marketCapLeaders.slice(0, 3), [marketCapLeaders]);
 
   const signal = useMemo(() => {
     if (!selectedCoin) {
@@ -1556,37 +1549,6 @@ function App() {
     { label: 'Liquidity', value: 'High', detail: 'Depth remains healthy', tone: 'positive' },
     { label: 'Volatility', value: 'Moderate', detail: 'Range expansion normal', tone: 'warning' },
   ], []);
-
-  const segmentWidgets = useMemo(() => {
-    const palette = ['#5ec4ff', '#7c8dff', '#36d399', '#fbbf24', '#ff6b6b'];
-
-    return marketSegmentSummary.map((segment, index) => ({
-      ...segment,
-      color: palette[index % palette.length],
-      topCoins: coins
-        .filter((coin) => getCoinSegment(coin) === segment.key)
-        .sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
-        .slice(0, 4)
-        .map((coin) => ({
-          id: coin.id,
-          name: coin.name,
-          symbol: coin.symbol.toUpperCase(),
-          change: Number(coin.price_change_percentage_24h || 0),
-        })),
-    }));
-  }, [coins, marketSegmentSummary]);
-
-  const trendingHeatmap = useMemo(
-    () =>
-      [...coins]
-        .sort((a, b) => Math.abs(b.price_change_percentage_24h) - Math.abs(a.price_change_percentage_24h))
-        .slice(0, 18)
-        .map((coin) => ({
-          ...coin,
-          intensity: Math.min(Math.abs(Number(coin.price_change_percentage_24h || 0)) * 8, 100),
-        })),
-    [coins]
-  );
 
   const portfolioCategoryBreakdown = useMemo(() => {
     const total = marketSegmentSummary.reduce((sum, segment) => sum + segment.count, 0) || 1;
@@ -3095,70 +3057,6 @@ function App() {
                     <p>Select assets above to compare their current market data.</p>
                   </div>
                 )}
-              </section>
-            )}
-
-            {marketTab === 'sectors' && (
-              <section className="sector-panel-grid">
-                {segmentWidgets.map((segment) => (
-                  <div key={segment.key} className="panel-card sector-card">
-                    <div className="panel-header">
-                      <h3>{segment.label}</h3>
-                      <span>{segment.count} assets</span>
-                    </div>
-
-                    <div className="sector-metric-row">
-                      <strong>{segment.averageChange >= 0 ? '+' : ''}{segment.averageChange.toFixed(2)}%</strong>
-                      <span>avg. 24h move</span>
-                    </div>
-
-                    <div className="segment-token-list">
-                      {segment.topCoins.map((coin) => (
-                        <button
-                          key={coin.id}
-                          type="button"
-                          className="segment-token"
-                          onClick={() => openCoinWorkspace(coin.id)}
-                        >
-                          <span>{coin.symbol}</span>
-                          <small className={coin.change >= 0 ? 'positive' : 'negative'}>
-                            {coin.change >= 0 ? '+' : ''}{coin.change.toFixed(2)}%
-                          </small>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </section>
-            )}
-
-            {marketTab === 'heatmap' && (
-              <section className="panel-card heatmap-panel">
-                <div className="panel-header">
-                  <h3>Trending Heatmap</h3>
-                  <span>Momentum intensity</span>
-                </div>
-
-                <div className="heatmap-grid">
-                  {trendingHeatmap.map((coin) => (
-                    <button
-                      key={coin.id}
-                      type="button"
-                      className="heatmap-cell"
-                      style={{
-                        background: `linear-gradient(135deg, rgba(94,196,255,0.18), rgba(14,20,30,0.88))`,
-                        boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.03), 0 0 ${Math.max(coin.intensity, 10)}px rgba(94,196,255,0.12)`,
-                        borderColor: coin.price_change_percentage_24h >= 0 ? 'rgba(54,211,153,0.5)' : 'rgba(255,107,107,0.5)',
-                      }}
-                      onClick={() => openCoinWorkspace(coin.id)}
-                    >
-                      <span className="heatmap-symbol">{coin.symbol.toUpperCase()}</span>
-                      <strong className={coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}>
-                        {coin.price_change_percentage_24h >= 0 ? '+' : ''}{Number(coin.price_change_percentage_24h || 0).toFixed(2)}%
-                      </strong>
-                    </button>
-                  ))}
-                </div>
               </section>
             )}
 

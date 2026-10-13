@@ -1,54 +1,22 @@
-const API_PORT_CANDIDATES = [5000, 5001, 5002, 5003, 5004, 5005, 5006];
-let cachedApiBaseUrl = null;
+let cachedBaseUrl = null;
 
-async function resolveApiBaseUrl() {
-  if (cachedApiBaseUrl !== null) {
-    return cachedApiBaseUrl;
-  }
-
-  // 1. If explicitly configured in environment, use it
+async function resolveBaseUrl() {
+  if (cachedBaseUrl !== null) return cachedBaseUrl;
   const configured = import.meta.env.VITE_API_URL;
-  if (configured) {
-    cachedApiBaseUrl = configured.replace(/\/$/, '');
-    return cachedApiBaseUrl;
+  if (configured) return (cachedBaseUrl = configured.replace(/\/$/, ''));
+  if (typeof window !== 'undefined' && !window.location?.hostname.includes('localhost') && !window.location?.hostname.includes('127.0.0.1')) {
+    return (cachedBaseUrl = '');
   }
-
-  // 2. In production browser (deployed on Vercel or any non-localhost domain), use relative path directly
-  if (typeof window !== 'undefined' && window.location && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
-    cachedApiBaseUrl = '';
-    return cachedApiBaseUrl;
-  }
-
-  // 3. In local dev, probe active backend port candidates
-  for (const port of API_PORT_CANDIDATES) {
-    try {
-      const response = await fetch(`http://localhost:${port}/api/health`, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      });
-
-      if (response.ok) {
-        cachedApiBaseUrl = `http://localhost:${port}`;
-        return cachedApiBaseUrl;
-      }
-    } catch {
-      // Try next port candidate
-    }
-  }
-
-  // Default fallback for local dev
-  cachedApiBaseUrl = 'http://localhost:5001';
-  return cachedApiBaseUrl;
+  return (cachedBaseUrl = 'http://localhost:5001');
 }
 
 async function request(path, options = {}, retries = 2) {
-  const apiBaseUrl = await resolveApiBaseUrl();
-  const url = `${apiBaseUrl}${path}`;
+  const baseUrl = await resolveBaseUrl();
+  const url = `${baseUrl}${path}`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const response = await fetch(url, options);
-
       if (!response.ok) {
         if (response.status === 429 && attempt < retries) {
           await new Promise((res) => setTimeout(res, 800 * (attempt + 1)));
@@ -57,7 +25,6 @@ async function request(path, options = {}, retries = 2) {
         const errorText = await response.text();
         throw new Error(errorText || `Request failed with status ${response.status}`);
       }
-
       return await response.json();
     } catch (err) {
       if (attempt < retries && !options?.signal?.aborted) {
@@ -69,191 +36,38 @@ async function request(path, options = {}, retries = 2) {
   }
 }
 
+const authHeader = (token) => (token ? { Authorization: `Bearer ${token}` } : {});
+const jsonHeaders = (token) => ({ 'Content-Type': 'application/json', Accept: 'application/json', ...authHeader(token) });
+const getHeaders = (token) => ({ Accept: 'application/json', ...authHeader(token) });
+
 export const marketApi = {
-  getCurrencyRates() {
-    return request('/api/exchange-rates');
-  },
-  getBinanceStatus() {
-    return request('/api/binance/status');
-  },
-  getBinanceAccount(token) {
-    return request('/api/binance/account', {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-    });
-  },
-  placeBinanceOrder(token, entry) {
-    return request('/api/binance/order', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(entry),
-    });
-  },
-  getMarket(ids = []) {
-    const query = Array.isArray(ids) && ids.length ? ids.join(',') : '';
-    return request(`/api/market${query ? `?ids=${encodeURIComponent(query)}` : ''}`);
-  },
-  getOverview(ids = []) {
-    const query = Array.isArray(ids) && ids.length ? ids.join(',') : '';
-    return request(`/api/overview${query ? `?ids=${encodeURIComponent(query)}` : ''}`);
-  },
-  getChart(id, days = 7) {
-    return request(`/api/chart/${encodeURIComponent(id)}?days=${days}`);
-  },
-  getOhlc(id, days = 7) {
-    return request(`/api/ohlc/${encodeURIComponent(id)}?days=${days}`);
-  },
-  getBinanceKlines(symbol, interval) {
-    return request(`/api/binance/klines/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}`);
-  },
-  getTrending() {
-    return request('/api/trending');
-  },
-  getCoin(id) {
-    return request(`/api/coin/${encodeURIComponent(id)}`);
-  },
-  placeTrade(payload) {
-    return request('/api/trade', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-  },
-  register(payload) {
-    return request('/api/auth/register', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-  },
-  login(payload) {
-    return request('/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-  },
-  getWatchlist(token) {
-    return request('/api/watchlist', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  },
-  saveWatchlist(token, coinIds) {
-    return request('/api/watchlist', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ coinIds }),
-    });
-  },
-  getPortfolio(token) {
-    return request('/api/portfolio', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  },
-  getPortfolioSummary(token) {
-    return request('/api/portfolio/summary', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  },
-  getPortfolioInsights(token) {
-    return request('/api/portfolio/insights', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  },
-  savePortfolio(token, entry) {
-    return request('/api/portfolio', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(entry),
-    });
-  },
-  getTransactions(token) {
-    return request('/api/transactions', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  },
-  saveTransaction(token, entry) {
-    return request('/api/transactions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(entry),
-    });
-  },
-  getAlerts(token) {
-    return request('/api/alerts', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  },
-  saveAlert(token, entry) {
-    return request('/api/alerts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(entry),
-    });
-  },
-  adminLogin(payload) {
-    return request('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  },
-  getAdminUsers(adminToken) {
-    return request('/api/admin/users', {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${adminToken}` },
-    });
-  },
-  getAdminStats(adminToken) {
-    return request('/api/admin/stats', {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${adminToken}` },
-    });
-  },
+  getCurrencyRates: () => request('/api/exchange-rates'),
+  getBinanceStatus: () => request('/api/binance/status'),
+  getBinanceAccount: (token) => request('/api/binance/account', { headers: getHeaders(token) }),
+  placeBinanceOrder: (token, entry) => request('/api/binance/order', { method: 'POST', headers: jsonHeaders(token), body: JSON.stringify(entry) }),
+  getMarket: (ids = []) => request(`/api/market${Array.isArray(ids) && ids.length ? `?ids=${encodeURIComponent(ids.join(','))}` : ''}`),
+  getOverview: (ids = []) => request(`/api/overview${Array.isArray(ids) && ids.length ? `?ids=${encodeURIComponent(ids.join(','))}` : ''}`),
+  getChart: (id, days = 7) => request(`/api/chart/${encodeURIComponent(id)}?days=${days}`),
+  getOhlc: (id, days = 7) => request(`/api/ohlc/${encodeURIComponent(id)}?days=${days}`),
+  getBinanceKlines: (symbol, interval) => request(`/api/binance/klines/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}`),
+  getTrending: () => request('/api/trending'),
+  getCoin: (id) => request(`/api/coin/${encodeURIComponent(id)}`),
+  placeTrade: (payload) => request('/api/trade', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) }),
+  register: (payload) => request('/api/auth/register', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) }),
+  login: (payload) => request('/api/auth/login', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) }),
+  getWatchlist: (token) => request('/api/watchlist', { headers: getHeaders(token) }),
+  saveWatchlist: (token, coinIds) => request('/api/watchlist', { method: 'POST', headers: jsonHeaders(token), body: JSON.stringify({ coinIds }) }),
+  getPortfolio: (token) => request('/api/portfolio', { headers: getHeaders(token) }),
+  getPortfolioSummary: (token) => request('/api/portfolio/summary', { headers: getHeaders(token) }),
+  getPortfolioInsights: (token) => request('/api/portfolio/insights', { headers: getHeaders(token) }),
+  savePortfolio: (token, entry) => request('/api/portfolio', { method: 'POST', headers: jsonHeaders(token), body: JSON.stringify(entry) }),
+  getTransactions: (token) => request('/api/transactions', { headers: getHeaders(token) }),
+  saveTransaction: (token, entry) => request('/api/transactions', { method: 'POST', headers: jsonHeaders(token), body: JSON.stringify(entry) }),
+  getAlerts: (token) => request('/api/alerts', { headers: getHeaders(token) }),
+  saveAlert: (token, entry) => request('/api/alerts', { method: 'POST', headers: jsonHeaders(token), body: JSON.stringify(entry) }),
+  adminLogin: (payload) => request('/api/admin/login', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) }),
+  getAdminUsers: (token) => request('/api/admin/users', { headers: getHeaders(token) }),
+  getAdminStats: (token) => request('/api/admin/stats', { headers: getHeaders(token) }),
 };
 
 export default marketApi;
