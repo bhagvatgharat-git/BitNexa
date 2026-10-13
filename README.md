@@ -103,6 +103,28 @@ npm --prefix frontend run build
 
 ---
 
+## 🛡️ Admin Panel & Platform Intelligence
+
+BitNexa comes with an administrative intelligence dashboard for monitoring platform trading activity, inspecting user accounts, and auditing trades in real time:
+
+- **How to Open**: Click on the **BITNEXA** brand logo at the top of the sidebar 5 times in quick succession (or enter Admin login modal).
+- **Default Credentials**:
+  - **Email**: `admin@bitnexa.com`
+  - **Password**: `BitNexaAdmin2025!`
+- **Features Included**:
+  - 📊 **Platform KPIs**: Total Users, Total Executions, Buy/Sell Volume split, Net P&L, Brokerage Fees (0.1%).
+  - 👥 **User Accounts Directory**: Search by Name, Email, or User ID; filter by Active Traders, In Profit, Open Holdings; sort by Trades, Volume, P&L, Cash.
+  - 🔍 **Particular User Inspector**: Deep-dive into any user to inspect their:
+    - Current Demo Cash Balance
+    - Buy Volume vs Sell Volume breakdown
+    - Realized P&L and Win Rate %
+    - 0.1% Brokerage Fees Paid audit
+    - 📜 **Complete Buy/Sell Trade Log**: Every transaction with Asset, Side, Price, Quantity, Value, Fee, Realized P&L, and Timestamp.
+    - 💼 **Open Holdings**: Exact spot crypto positions currently held.
+    - ⭐ **Watchlist & Alerts**: Coins tracked and configured price alerts.
+
+---
+
 ## 📄 License
 
 Distributed under the [MIT License](LICENSE). Built with ❤️ by [Bhagvat Gharat](https://github.com/bhagvatgharat-git).
