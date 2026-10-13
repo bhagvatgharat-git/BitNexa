@@ -2,16 +2,24 @@ const API_PORT_CANDIDATES = [5000, 5001, 5002, 5003, 5004, 5005, 5006];
 let cachedApiBaseUrl = null;
 
 async function resolveApiBaseUrl() {
-  if (cachedApiBaseUrl) {
+  if (cachedApiBaseUrl !== null) {
     return cachedApiBaseUrl;
   }
 
+  // 1. If explicitly configured in environment, use it
   const configured = import.meta.env.VITE_API_URL;
   if (configured) {
-    cachedApiBaseUrl = configured;
+    cachedApiBaseUrl = configured.replace(/\/$/, '');
     return cachedApiBaseUrl;
   }
 
+  // 2. In production browser (deployed on Vercel or any non-localhost domain), use relative path directly
+  if (typeof window !== 'undefined' && window.location && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+    cachedApiBaseUrl = '';
+    return cachedApiBaseUrl;
+  }
+
+  // 3. In local dev, probe active backend port candidates
   for (const port of API_PORT_CANDIDATES) {
     try {
       const response = await fetch(`http://localhost:${port}/api/health`, {
@@ -24,30 +32,41 @@ async function resolveApiBaseUrl() {
         return cachedApiBaseUrl;
       }
     } catch {
-      // Try the next port.
+      // Try next port candidate
     }
   }
 
-  // If in production browser (not localhost), use relative path
-  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
-    cachedApiBaseUrl = '';
-    return cachedApiBaseUrl;
-  }
-
+  // Default fallback for local dev
   cachedApiBaseUrl = 'http://localhost:5001';
   return cachedApiBaseUrl;
 }
 
-async function request(path, options = {}) {
+async function request(path, options = {}, retries = 2) {
   const apiBaseUrl = await resolveApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}${path}`, options);
+  const url = `${apiBaseUrl}${path}`;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || 'Request failed.');
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+
+      if (!response.ok) {
+        if (response.status === 429 && attempt < retries) {
+          await new Promise((res) => setTimeout(res, 800 * (attempt + 1)));
+          continue;
+        }
+        const errorText = await response.text();
+        throw new Error(errorText || `Request failed with status ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (err) {
+      if (attempt < retries && !options?.signal?.aborted) {
+        await new Promise((res) => setTimeout(res, 500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
   }
-
-  return response.json();
 }
 
 export const marketApi = {

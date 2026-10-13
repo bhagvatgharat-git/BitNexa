@@ -112,17 +112,22 @@ const alerts = new Map();
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.method === 'GET' && (
-    req.path === '/health'
-    || req.path === '/market'
-    || req.path === '/overview'
-    || req.path === '/trending'
-    || req.path === '/exchange-rates'
-    || /^\/(coin|chart|ohlc)\/[^/]+$/.test(req.path)
-  ),
+  skip: (req) => {
+    if (req.method !== 'GET') return false;
+    const cleanPath = (req.path || '').replace(/^\/api/, '');
+    return (
+      cleanPath === '/health'
+      || cleanPath === '/market'
+      || cleanPath === '/overview'
+      || cleanPath === '/trending'
+      || cleanPath === '/exchange-rates'
+      || cleanPath === '/binance/status'
+      || /^\/(coin|chart|ohlc|binance\/klines)\/.+$/.test(cleanPath)
+    );
+  },
   message: { error: 'Too many requests. Please slow down and retry later.' },
 });
 
@@ -917,7 +922,7 @@ app.post('/api/trade', async (req, res) => {
   }
 });
 
-app.get('/api/binance/status', requireLocalRequest, (req, res) => {
+app.get('/api/binance/status', (req, res) => {
   return res.json(getBinanceStatus());
 });
 
