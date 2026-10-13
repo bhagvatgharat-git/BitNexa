@@ -16,14 +16,14 @@ export default function AdminModal({
           </div>
           <button type="button" className="close-btn" onClick={onClose}>×</button>
         </div>
-        <form className="modal-body" onSubmit={handleAdminLogin}>
+        <form className="modal-body" onSubmit={handleAdminLogin} autoComplete="off">
           <label className="modal-field">
             Admin Email
             <input
               type="email"
               value={adminForm.email}
               onChange={(e) => setAdminForm((c) => ({ ...c, email: e.target.value }))}
-              placeholder="admin@bitnexa.com"
+              placeholder="Enter admin email"
               autoComplete="off"
             />
           </label>
@@ -33,12 +33,22 @@ export default function AdminModal({
               type="password"
               value={adminForm.password}
               onChange={(e) => setAdminForm((c) => ({ ...c, password: e.target.value }))}
-              placeholder="••••••••"
+              placeholder="Enter admin password"
+              autoComplete="new-password"
             />
           </label>
           {adminError && <div className="error-banner">{adminError}</div>}
           <div className="modal-actions">
-            <button type="button" className="ghost-btn" onClick={onClose}>Cancel</button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                setAdminForm({ email: '', password: '' });
+                onClose();
+              }}
+            >
+              Cancel
+            </button>
             <button type="submit" className="primary-btn" disabled={adminLoading}>
               {adminLoading ? 'Verifying…' : '🔐 Enter Admin Panel'}
             </button>

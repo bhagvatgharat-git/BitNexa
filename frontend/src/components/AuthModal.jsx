@@ -19,7 +19,7 @@ export default function AuthModal({
           <button type="button" className="close-btn" onClick={onClose}>×</button>
         </div>
 
-        <form className="modal-body" onSubmit={handleAuthSubmit}>
+        <form className="modal-body" onSubmit={handleAuthSubmit} autoComplete="off">
           {authMode === 'register' && (
             <label className="modal-field">
               Full name
@@ -27,7 +27,8 @@ export default function AuthModal({
                 type="text"
                 value={authForm.name}
                 onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="Alex Trader"
+                placeholder="Enter your full name"
+                autoComplete="off"
               />
             </label>
           )}
@@ -38,7 +39,8 @@ export default function AuthModal({
               type="email"
               value={authForm.email}
               onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
-              placeholder="you@example.com"
+              placeholder="Enter your email"
+              autoComplete="off"
             />
           </label>
 
@@ -48,7 +50,8 @@ export default function AuthModal({
               type="password"
               value={authForm.password}
               onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
-              placeholder="••••••••"
+              placeholder="Enter your password"
+              autoComplete="new-password"
             />
           </label>
 
@@ -58,7 +61,10 @@ export default function AuthModal({
             <button
               type="button"
               className="ghost-btn"
-              onClick={() => setAuthMode((current) => (current === 'login' ? 'register' : 'login'))}
+              onClick={() => {
+                setAuthForm({ name: '', email: '', password: '' });
+                setAuthMode((current) => (current === 'login' ? 'register' : 'login'));
+              }}
             >
               {authMode === 'login' ? 'Create account' : 'Use login'}
             </button>

@@ -151,7 +151,7 @@ function App() {
   });
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login');
-  const [authForm, setAuthForm] = useState({ name: '', email: 'demo@example.com', password: 'Password123!' });
+  const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [adminToken, setAdminToken] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -1362,7 +1362,7 @@ function App() {
       setUser(nextUser);
       setToken(response.token || '');
       setAuthOpen(false);
-      setAuthForm({ name: '', email: 'demo@example.com', password: 'Password123!' });
+      setAuthForm({ name: '', email: '', password: '' });
       setToast({ id: Date.now(), type: 'success', text: authMode === 'login' ? 'Welcome back to BitNexa.' : 'Account created successfully.' });
     } catch (error) {
       setAuthError(error?.message || 'Authentication failed.');
