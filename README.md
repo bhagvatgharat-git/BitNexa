@@ -107,10 +107,7 @@ npm --prefix frontend run build
 
 BitNexa comes with an administrative intelligence dashboard for monitoring platform trading activity, inspecting user accounts, and auditing trades in real time:
 
-- **How to Open**: Click on the **BITNEXA** brand logo at the top of the sidebar 5 times in quick succession (or enter Admin login modal).
-- **Default Credentials**:
-  - **Email**: `admin@bitnexa.com`
-  - **Password**: `BitNexaAdmin2025!`
+
 - **Features Included**:
   - 📊 **Platform KPIs**: Total Users, Total Executions, Buy/Sell Volume split, Net P&L, Brokerage Fees (0.1%).
   - 👥 **User Accounts Directory**: Search by Name, Email, or User ID; filter by Active Traders, In Profit, Open Holdings; sort by Trades, Volume, P&L, Cash.
